@@ -1,0 +1,7 @@
+[workspace]
+members = ["tasks_core", "tasks_tui"]
+default-members = ["tasks_tui"]
+resolver = "2"
+
+[workspace.dependencies]
+tasks_core = { path = "tasks_core" }
