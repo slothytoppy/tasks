@@ -1,8 +1,8 @@
 [task1]
-wasd
+0 wasd
 wasdwa
 
 sadwasd
 wasdwasd
-[task2]:
-nothing
+[task2]
+1 nothing
