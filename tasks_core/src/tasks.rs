@@ -23,81 +23,6 @@ fn open<P: AsRef<std::path::Path>>(file: P) -> std::io::Result<std::fs::File> {
     std::fs::File::open(file)
 }
 
-fn parse_header(data: &str) -> Result<(&str, usize), TaskError> {
-    println!("from parse_header");
-    //println!("{data:?}");
-    if data.is_empty() {
-        return Err(TaskError::NoData);
-    }
-    let mut start = 1;
-
-    for (i, c) in data.chars().enumerate() {
-        match c {
-            '[' => start = i + 1,
-            ']' => {
-                //println!("{i:?} {}", &data[1..=i.saturating_sub(1)]);
-                return Ok((&data[start..=i.saturating_sub(1)], i + 1));
-            }
-            _ => {}
-        }
-    }
-
-    Err(TaskError::ParseError((
-        data.chars().next().unwrap_or_default(),
-        data.len(),
-    )))
-}
-
-fn parse_status(data: &str) -> Result<(bool, usize), TaskError> {
-    println!("from parse_status");
-
-    if data.is_empty() {
-        return Err(TaskError::NoData);
-    }
-
-    for (i, c) in data.chars().enumerate() {
-        match c {
-            '0' => return Ok((false, i + 1)),
-            '1' => return Ok((true, i + 1)),
-            ' ' | '\n' | '\t' => continue,
-            _ => {
-                println!("{}", data);
-                return Err(TaskError::ParseError((
-                    data.chars().next().unwrap_or_default(),
-                    i,
-                )));
-            }
-        }
-    }
-
-    Err(TaskError::NoData)
-}
-
-fn parse_data(data: &str) -> Result<(&str, usize), TaskError> {
-    println!("from parse_data");
-    //println!("{data:?}");
-    if data.is_empty() {
-        return Err(TaskError::NoData);
-    }
-
-    for (i, c) in data.chars().enumerate() {
-        match c {
-            '[' => {
-                //println!("{i:?} {:?}", &data[0..i]);
-                return Ok((data[0..i].trim(), i.saturating_sub(1)));
-            }
-            ']' => {
-                return Err(TaskError::ParseError((
-                    data.chars().next().unwrap_or_default(),
-                    data.len(),
-                )))
-            }
-            _ => {}
-        };
-    }
-    Ok((data, data.len()))
-}
-
 #[derive(Default, Debug)]
 pub struct Task<'a> {
     data: &'a str,
@@ -171,27 +96,48 @@ impl<'a> TaskList<'a> {
             return Err(TaskError::NoData);
         }
 
-        let chars = data.trim().chars();
+        let chars = data.chars();
         let mut list = TaskList::default();
-        let mut pos = 0;
 
-        for _ in chars.enumerate() {
-            let (name, new_pos) = match parse_header(&data[pos..]) {
-                Ok(res) => res,
-                Err(e) => {
-                    if e == TaskError::NoData {
-                        return Ok(list);
-                    } else {
-                        return Err(e);
+        let mut valid_start = false;
+        let mut status_section = false;
+
+        let mut header_start = 0;
+        let mut data_start = 0;
+
+        let mut name = "";
+        let mut content: &str;
+        let mut status = false;
+
+        for (i, ch) in chars.enumerate() {
+            match ch {
+                '[' => {
+                    header_start = i + 1;
+                    if valid_start {
+                        content = &data[data_start..i];
+                        list.push(Task::new(content, name, status));
+                        continue;
+                    }
+                    valid_start = true;
+                }
+                ']' => {
+                    if !valid_start {
+                        return Err(TaskError::ParseError(('[', i)));
+                    }
+                    name = &data[header_start..i];
+                    println!("{name}");
+                    status_section = true;
+                }
+                '0' | '1' => {
+                    if status_section {
+                        status = ch != '0';
+                        status_section = false;
+                        data_start = i + 1;
+                        println!("{status}");
                     }
                 }
-            };
-            pos += new_pos;
-            let (status, new_pos) = parse_status(&data[pos..])?;
-            pos += new_pos;
-            let (data, new_pos) = parse_data(&data[pos..])?;
-            pos += new_pos;
-            list.push(Task::new(data, name, status));
+                _ => {}
+            }
         }
 
         Ok(list)
