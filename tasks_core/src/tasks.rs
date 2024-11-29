@@ -11,7 +11,7 @@ impl Display for TaskError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TaskError::ParseError((ch, idx)) => {
-                write!(f, "Failed to parse: {} at index {}", ch, idx)
+                write!(f, "Failed to parse: {:#?} at index {}", ch, idx)
             }
             TaskError::NoFile(file) => write!(f, "ENOFILE: {file}"),
             TaskError::NoData => write!(f, "No data to parse"),
@@ -62,6 +62,10 @@ pub struct TaskList<'a> {
 }
 
 impl<'a> TaskList<'a> {
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
     pub fn get(&self, idx: usize) -> Option<&Task<'a>> {
         self.list.get(idx)
     }
@@ -110,12 +114,19 @@ impl<'a> TaskList<'a> {
         let mut status = false;
 
         for (i, ch) in chars.enumerate() {
+            if list.is_empty() && i == data.len().saturating_sub(1) {
+                content = &data[data_start + 1..data.len()];
+                list.push(Task::new(content.trim(), name, status));
+            }
             match ch {
                 '[' => {
                     header_start = i + 1;
                     if valid_start {
-                        content = &data[data_start..i];
-                        list.push(Task::new(content, name, status));
+                        //println!("front {push_front} back {push_back}");
+                        //println!("start {data_start} end {data_end}");
+                        //println!("stuff {:#?}", &data[41..=44]);
+                        content = &data[data_start..i.saturating_sub(1)];
+                        list.push(Task::new(content.trim(), name, status));
                         continue;
                     }
                     valid_start = true;
@@ -125,7 +136,6 @@ impl<'a> TaskList<'a> {
                         return Err(TaskError::ParseError(('[', i)));
                     }
                     name = &data[header_start..i];
-                    println!("{name}");
                     status_section = true;
                 }
                 '0' | '1' => {
@@ -133,10 +143,13 @@ impl<'a> TaskList<'a> {
                         status = ch != '0';
                         status_section = false;
                         data_start = i + 1;
-                        println!("{status}");
                     }
                 }
-                _ => {}
+                _ => {
+                    if !valid_start {
+                        return Err(TaskError::ParseError((ch, i)));
+                    }
+                }
             }
         }
 
@@ -160,8 +173,8 @@ mod test {
     #[test]
     pub fn test_list() {
         let data = r#"[hai]
-            0
-            bai
+        0
+        bai
             [bai]
             1
             urmom
@@ -170,14 +183,12 @@ mod test {
             hai"#;
 
         let list = match TaskList::deserialize(data) {
-            Ok(list) => list,
+            Ok(list) => {
+                println!("{list:?}");
+                list
+            }
             Err(e) => panic!("{e}"),
         };
-
-        //let Ok(path) = PathBuf::from_str("urmom.tl");
-        //list.serialize(path);
-
-        println!("{list:?}");
 
         panic!();
     }
