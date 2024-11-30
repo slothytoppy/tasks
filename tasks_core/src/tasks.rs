@@ -1,3 +1,5 @@
+use crate::iterator::*;
+use std::ops::Range;
 use std::{fmt::Display, path::PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,27 +21,42 @@ impl Display for TaskError {
     }
 }
 
-fn open<P: AsRef<std::path::Path>>(file: P) -> std::io::Result<std::fs::File> {
+pub fn open<P: AsRef<std::path::Path>>(file: P) -> std::io::Result<std::fs::File> {
     std::fs::File::open(file)
 }
 
-#[derive(Default, Debug)]
-pub struct Task<'a> {
-    data: &'a str,
-    name: &'a str,
+#[derive(Default, Debug, Copy, Clone)]
+pub struct Task<'task> {
+    data: &'task str,
+    name: &'task str,
     status: bool,
 }
 
-impl<'a> Task<'a> {
-    pub fn new(data: &'a str, name: &'a str, status: bool) -> Self {
+impl IntoIterator for TaskList {
+    type Item = TaskItem;
+    type IntoIter = TaskIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TaskIter::new(self.source, self.names, self.datas, self.status)
+    }
+}
+
+impl<'task> Display for Task<'task> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("[{}]\n{}\n{}", self.name, self.status, self.data))
+    }
+}
+
+impl<'task> Task<'task> {
+    pub fn new(data: &'task str, name: &'task str, status: bool) -> Self {
         Self { data, name, status }
     }
 
-    pub fn data(&self) -> &'a str {
+    pub fn data(&self) -> &'task str {
         self.data
     }
 
-    pub fn set_data(&mut self, data: &'a str) {
+    pub fn set_data(&mut self, data: &'task str) {
         self.data = data
     }
 
@@ -56,52 +73,38 @@ impl<'a> Task<'a> {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct TaskList<'a> {
-    list: Vec<Task<'a>>,
+#[derive(Default, Debug, Clone)]
+pub struct TaskList {
+    source: String,
+    names: Vec<Range<usize>>,
+    datas: Vec<Range<usize>>,
+    status: Vec<bool>,
 }
 
-impl<'a> TaskList<'a> {
-    pub fn is_empty(&self) -> bool {
-        self.list.is_empty()
-    }
-
-    pub fn get(&self, idx: usize) -> Option<&Task<'a>> {
-        self.list.get(idx)
-    }
-
-    pub fn get_mut(&mut self, idx: usize) -> Option<&mut Task<'a>> {
-        self.list.get_mut(idx)
-    }
-
-    pub fn push(&mut self, task: Task<'a>) {
-        self.list.push(task);
-    }
-
-    pub fn set(&mut self, idx: usize, task: Task<'a>) {
-        self.list.insert(idx, task)
+impl TaskList {
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
     }
 
     pub fn serialize(&self, file: PathBuf) {
         let mut buff = String::default();
-        self.list.iter().for_each(|task| {
-            buff.push_str(&format!(
-                "[{}]\n{} {}\n",
-                task.name(),
-                task.status(),
-                task.data()
-            ));
+        self.clone().into_iter().for_each(|item| {
+            buff.push_str(&format!("[{}]\n{} {}\n", item.name, item.status, item.data));
         });
         let _ = std::fs::write(file, buff);
     }
 
-    pub fn deserialize(data: &'a str) -> Result<Self, TaskError> {
-        if data.is_empty() {
+    pub fn deserialize(source: String) -> Result<Self, TaskError> {
+        if source.is_empty() {
             return Err(TaskError::NoData);
         }
 
-        let chars = data.chars();
+        let chars = source.chars();
+
         let mut list = TaskList::default();
+        list.source = source.clone();
 
         let mut valid_start = false;
         let mut status_section = false;
@@ -109,14 +112,14 @@ impl<'a> TaskList<'a> {
         let mut header_start = 0;
         let mut data_start = 0;
 
-        let mut name = "";
-        let mut content: &str;
+        let mut name = Range::<usize>::default();
+        let mut content = Range::<usize>::default();
         let mut status = false;
 
         for (i, ch) in chars.enumerate() {
-            if list.is_empty() && i == data.len().saturating_sub(1) {
-                content = &data[data_start + 1..data.len()];
-                list.push(Task::new(content.trim(), name, status));
+            if list.is_empty() && i == source.len().saturating_sub(1) {
+                content = data_start + 1..source.len();
+                list.push(content, name.clone(), status);
             }
             match ch {
                 '[' => {
@@ -125,8 +128,8 @@ impl<'a> TaskList<'a> {
                         //println!("front {push_front} back {push_back}");
                         //println!("start {data_start} end {data_end}");
                         //println!("stuff {:#?}", &data[41..=44]);
-                        content = &data[data_start..i.saturating_sub(1)];
-                        list.push(Task::new(content.trim(), name, status));
+                        content = data_start..i.saturating_sub(1);
+                        list.push(content, name.clone(), status);
                         continue;
                     }
                     valid_start = true;
@@ -135,7 +138,7 @@ impl<'a> TaskList<'a> {
                     if !valid_start {
                         return Err(TaskError::ParseError(('[', i)));
                     }
-                    name = &data[header_start..i];
+                    name = header_start..i;
                     status_section = true;
                 }
                 '0' | '1' => {
@@ -155,12 +158,37 @@ impl<'a> TaskList<'a> {
 
         Ok(list)
     }
+
+    pub fn is_empty(&self) -> bool {
+        //self.list.is_empty()
+        true
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&Task> {
+        //self.list.get(idx)
+        None
+    }
+
+    pub fn get_mut(&mut self, idx: usize) -> Option<&mut Task> {
+        //self.list.get_mut(idx)
+        None
+    }
+
+    pub fn push(&mut self, name: Range<usize>, data: Range<usize>, status: bool) {
+        self.names.push(name);
+        self.datas.push(data);
+        self.status.push(status);
+    }
+
+    pub fn set(&mut self, idx: usize, task: Task) {
+        //self.list.insert(idx, task)
+    }
 }
 
-impl<'a> Display for TaskList<'a> {
+impl Display for TaskList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.list.iter().for_each(|task: &Task<'a>| {
-            let _ = write!(f, "[{}]\n{}\n", task.name(), task.name());
+        self.clone().into_iter().for_each(|item| {
+            let _ = write!(f, "[{}]\n{}\n", item.name, item.name);
         });
         Ok(())
     }
@@ -182,7 +210,7 @@ mod test {
             1
             hai"#;
 
-        let list = match TaskList::deserialize(data) {
+        let _ = match TaskList::deserialize(data.to_string()) {
             Ok(list) => {
                 println!("{list:?}");
                 list
