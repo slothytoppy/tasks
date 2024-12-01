@@ -1,16 +1,22 @@
-use std::io::Read;
-
 use anathema::backend::tui::TuiBackend;
 use anathema::component::Component;
 use anathema::runtime::Runtime;
-use anathema::state::{State, Value};
+use anathema::state::{CommonVal, State, Value};
 use anathema::templates::Document;
 
 use tasks_core::tasks::*;
 
-#[derive(Clone)]
+#[derive(Debug)]
 struct List {
-    list: TaskList,
+    task_list: TaskList,
+
+    list: Value<String>,
+}
+
+impl State for List {
+    fn to_common(&self) -> Option<CommonVal> {
+        self.list.to_common()
+    }
 }
 
 #[derive(Default, State)]
@@ -56,18 +62,22 @@ fn main() {
 
     let data = std::fs::read_to_string("./examples/tasks.tl").unwrap();
 
-    let task_list = TaskList::deserialize(data).expect("failed to parse file");
+    //println!("{:?}", data.bytes());
+
+    let task_list = TaskList::deserialize(data.to_string()).expect("failed to parse file");
 
     println!("{task_list:?}");
-    let list = List { list: task_list };
 
-    let app = App::new();
-
-    let _ = runtime
-        .register_component::<List>("list", "./templates/list.aml", list, ListState::default())
-        .expect("failed to register list component");
-
-    runtime.register_component("main", "./templates/main.aml", app, AppState::default());
-
-    runtime.finish().unwrap().run();
+    //let list = List {
+    //    list: Value::new(task_list.to_string()),
+    //    task_list,
+    //};
+    //
+    //let _ = runtime
+    //    .register_component::<List>("list", "./templates/list.aml", list, ListState::default())
+    //    .expect("failed to register list component");
+    //
+    //let _ = runtime.register_default::<App>("main", "./templates/main.aml");
+    //
+    //runtime.finish().unwrap().run();
 }

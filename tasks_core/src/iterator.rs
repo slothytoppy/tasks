@@ -1,34 +1,29 @@
-use std::{ops::Range, slice::SliceIndex};
+use std::fmt::Display;
 
-pub struct TaskIter {
-    idx: usize,
-    source: String,
-    names: Vec<Range<usize>>,
-    datas: Vec<Range<usize>>,
-    status: Vec<bool>,
+use crate::tasks::TaskList;
+
+pub struct TaskIter<'iter> {
+    pub list: &'iter TaskList,
+    pub idx: usize,
 }
 
-impl TaskIter {
-    pub fn new(
-        source: String,
-        names: Vec<Range<usize>>,
-        datas: Vec<Range<usize>>,
-        status: Vec<bool>,
-    ) -> Self {
-        Self {
-            source,
-            names,
-            datas,
-            status,
-            idx: 0,
-        }
+impl<'iter> TaskIter<'iter> {
+    pub fn new(list: &'iter TaskList) -> Self {
+        Self { list, idx: 0 }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TaskItem {
     pub name: String,
     pub data: String,
     pub status: bool,
+}
+
+impl Display for TaskItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("[{}]\n{}\n{}", self.name, self.status, self.data))
+    }
 }
 
 impl TaskItem {
@@ -37,37 +32,16 @@ impl TaskItem {
     }
 }
 
-impl Iterator for TaskIter {
+impl<'iter> Iterator for TaskIter<'iter> {
     type Item = TaskItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx < self.names.len()
-            || self.idx < self.datas.len()
-            || self.idx < self.status.len()
-        {
+        if self.idx > self.list.list.len().saturating_sub(1) {
             return None;
         }
-        let name = self.names.get(self.idx);
-        if name.is_none() {
-            return None;
-        }
-        let name = name.unwrap();
-        let name = self.source.get(name.start..name.end).unwrap();
 
-        let data = self.datas.get(self.idx);
-        if data.is_none() {
-            return None;
-        }
-        let data = data.unwrap();
-        let data = self.source.get(data.start..data.end).unwrap();
-
-        let status = self.status.get(self.idx);
-        if status.is_none() {
-            return None;
-        }
-        let status = status.unwrap();
-
+        let res = self.list.get(self.idx)?;
         self.idx += 1;
-        return Some(TaskItem::new(name.to_string(), data.to_string(), *status));
+        Some(res.clone())
     }
 }

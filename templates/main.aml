@@ -1,5 +1,5 @@
 vstack [background: #282727]
-  border
-    vstack
-      for value in list 
-        text value
+  expand
+    border [background: #393836]
+      vstack
+        @list
