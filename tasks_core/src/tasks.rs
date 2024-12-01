@@ -33,7 +33,7 @@ impl Parser {
 
         for (i, ch) in self.source.chars().enumerate() {
             if ch == ']' {
-                name = &self.source[self.parse_header()?];
+                name = &self.source[self.parse_header(offset)?];
                 offset = i;
                 status = self.parse_status(i + 1)?;
                 offset += status.0;
@@ -50,14 +50,14 @@ impl Parser {
         Ok(list)
     }
 
-    fn parse_header(&self) -> Result<Range<usize>, TaskError> {
+    fn parse_header(&self, offset: usize) -> Result<Range<usize>, TaskError> {
         let mut start = 0;
-        for (i, ch) in self.source.chars().enumerate() {
+        for (i, ch) in self.source.chars().skip(offset).enumerate() {
             if ch == '[' {
                 start = i + 1;
             }
             if ch == ']' {
-                return Ok(start..i);
+                return Ok(offset + start..i + offset);
             }
         }
         Err(TaskError::NoData)
@@ -81,7 +81,7 @@ impl Parser {
     fn parse_data(&self, offset: usize) -> Result<&str, TaskError> {
         for (i, ch) in self.source.chars().skip(offset).enumerate() {
             if ch == '[' {
-                return Ok(&self.source[offset..i]);
+                return Ok(&self.source[offset..offset + i]);
             }
         }
         Ok(&self.source[offset..])
@@ -168,15 +168,15 @@ mod test {
 
     #[test]
     pub fn test_list() {
-        let data = r#"[hai]
-        0
-        bai
-            [bai]
-            1
-            urmom
-            [urmom]
-            1
-            hai"#;
+        let data = r#"[1]
+0
+bai
+[2]
+1
+urmom
+[3]
+1
+hai"#;
 
         let list = match TaskList::deserialize(data.to_string()) {
             Ok(list) => {
