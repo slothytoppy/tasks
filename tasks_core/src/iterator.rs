@@ -13,7 +13,7 @@ impl<'iter> TaskIter<'iter> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct TaskItem {
     pub name: String,
     pub data: String,

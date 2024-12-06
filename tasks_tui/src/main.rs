@@ -1,49 +1,112 @@
 use anathema::backend::tui::TuiBackend;
-use anathema::component::Component;
+use anathema::component::{Component, ComponentId, MouseEvent, MouseState};
+use anathema::default_widgets::Overflow;
 use anathema::runtime::Runtime;
-use anathema::state::{CommonVal, State, Value};
+use anathema::state::{CommonVal, List, State, Value};
 use anathema::templates::Document;
 
+use tasks_core::iterator::*;
 use tasks_core::tasks::*;
 
-#[derive(Debug)]
-struct List {
-    task_list: TaskList,
-
-    list: Value<String>,
+#[derive(Default)]
+struct Task {
+    item: TaskList,
+    message: String,
 }
 
-impl State for List {
-    fn to_common(&self) -> Option<CommonVal> {
-        self.list.to_common()
+impl Task {
+    pub fn new(item: TaskList) -> Self {
+        Self {
+            message: item.to_string(),
+            item,
+        }
+    }
+}
+
+impl State for Task {
+    fn to_common(&self) -> Option<CommonVal<'_>> {
+        Some(CommonVal::Str(&self.message))
     }
 }
 
 #[derive(Default, State)]
 struct ListState {
-    selected: Value<u64>,
+    list: Value<List<String>>,
+    #[state_ignore]
+    state: Task,
 }
 
-impl Component for List {
-    type State = ListState;
-
-    type Message = ();
+impl ListState {
+    fn new(state: Task) -> Self {
+        let list = List::from_iter(vec![state.message.clone()]);
+        Self { state, list }
+    }
 }
 
 #[derive(Default)]
-struct App {}
+struct ComponentList;
 
-#[derive(Default, State)]
-struct AppState {}
+impl Component for ComponentList {
+    type State = ListState;
+    type Message = String;
 
-impl Component for App {
-    type State = AppState;
-    type Message = ();
+    fn on_mouse(
+        &mut self,
+        mouse: MouseEvent,
+        _: &mut Self::State,
+        mut elements: anathema::widgets::Elements<'_, '_>,
+        _: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        elements.by_tag("overflow").first(|el, _| {
+            let overflow = el.to::<Overflow>();
+            match mouse.state {
+                MouseState::ScrollUp => overflow.scroll_up_by(3),
+                MouseState::ScrollDown => overflow.scroll_down_by(3),
+                _ => {}
+            }
+        });
+    }
+
+    fn message(
+        &mut self,
+        _: Self::Message,
+        state: &mut Self::State,
+        _: anathema::widgets::Elements<'_, '_>,
+        _: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        state
+            .list
+            .push_back(format!("message: {}", state.state.message));
+    }
 }
 
-impl App {
-    pub fn new() -> Self {
-        Self {}
+struct ComponentIndex {
+    component: ComponentId<String>,
+}
+
+impl Component for ComponentIndex {
+    type Message = ();
+    type State = ();
+
+    fn on_mouse(
+        &mut self,
+        mouse: anathema::component::MouseEvent,
+        state: &mut Self::State,
+        mut elements: anathema::widgets::Elements<'_, '_>,
+        mut context: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        if mouse.lsb_down() {
+            elements
+                .at_position(mouse.pos())
+                .by_attribute("id", "button")
+                .first(|_, _| context.emit(self.component, "message".into()));
+        }
+    }
+}
+
+impl ComponentIndex {
+    pub fn new(component: ComponentId<String>) -> Self {
+        Self { component }
     }
 }
 
@@ -62,22 +125,25 @@ fn main() {
 
     let data = std::fs::read_to_string("./examples/tasks.tl").unwrap();
 
-    //println!("{:?}", data.bytes());
-
     let task_list = TaskList::deserialize(data.to_string()).expect("failed to parse file");
 
-    println!("{task_list:?}");
+    let list_state = ListState::new(Task::new(task_list));
 
-    //let list = List {
-    //    list: Value::new(task_list.to_string()),
-    //    task_list,
-    //};
-    //
-    //let _ = runtime
-    //    .register_component::<List>("list", "./templates/list.aml", list, ListState::default())
-    //    .expect("failed to register list component");
-    //
-    //let _ = runtime.register_default::<App>("main", "./templates/main.aml");
-    //
-    //runtime.finish().unwrap().run();
+    let list = runtime
+        .register_component::<ComponentList>(
+            "list",
+            "./templates/list.aml",
+            ComponentList {},
+            list_state,
+        )
+        .expect("failed to register list component");
+
+    let _ = runtime.register_component::<ComponentIndex>(
+        "main",
+        "./templates/main.aml",
+        ComponentIndex::new(list),
+        (),
+    );
+
+    runtime.finish().unwrap().run();
 }
