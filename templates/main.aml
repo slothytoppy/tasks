@@ -1,6 +1,6 @@
 vstack [background: #282727]
     expand [factor: 7]
-        border
+        border 
           @list
 
     expand [factor: 3]

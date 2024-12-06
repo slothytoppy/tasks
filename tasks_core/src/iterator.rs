@@ -22,7 +22,10 @@ pub struct TaskItem {
 
 impl Display for TaskItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("[{}]\n{}\n{}", self.name, self.status, self.data))
+        f.write_str(&format!(
+            "[{}]\n{}\n{}\n",
+            self.name, self.status, self.data
+        ))
     }
 }
 
