@@ -1,122 +1,40 @@
+use anathema::backend::tui::Screen;
 use anathema::backend::tui::TuiBackend;
-use anathema::component::{Component, ComponentId, KeyCode, MouseEvent, MouseState};
-use anathema::default_widgets::Overflow;
 use anathema::runtime::Runtime;
-use anathema::state::{CommonVal, List, State, Value};
 use anathema::templates::Document;
 
-use tasks_core::iterator::*;
+use std::fs::OpenOptions;
+use std::path::Path;
+use tracing_subscriber::FmtSubscriber;
+
+use std::io::Write;
 use tasks_core::tasks::*;
 
-#[derive(Default)]
+mod component_index;
+mod selection;
+
+use component_index::*;
+use selection::*;
+
+#[derive(Default, Debug)]
 struct Task {
     item: TaskList,
-    message: String,
 }
 
 impl Task {
     pub fn new(item: TaskList) -> Self {
-        Self {
-            message: item.to_string(),
-            item,
-        }
-    }
-}
-
-impl State for Task {
-    fn to_common(&self) -> Option<CommonVal<'_>> {
-        Some(CommonVal::Str(&self.message))
-    }
-}
-
-#[derive(Default, State)]
-struct ListState {
-    list: Value<List<String>>,
-    #[state_ignore]
-    state: Task,
-    #[state_ignore]
-    idx: usize,
-}
-
-impl ListState {
-    fn new(state: Task) -> Self {
-        let list = List::from_iter(vec![state.message.clone()]);
-        Self {
-            state,
-            list,
-            idx: 0,
-        }
-    }
-}
-
-#[derive(Default)]
-struct ComponentList;
-
-impl Component for ComponentList {
-    type State = ListState;
-    type Message = String;
-
-    fn on_key(
-        &mut self,
-        key: anathema::component::KeyEvent,
-        _: &mut Self::State,
-        mut elements: anathema::widgets::Elements<'_, '_>,
-        _: anathema::prelude::Context<'_, Self::State>,
-    ) {
-        elements.by_tag("overflow").first(|el, _| {
-            let overflow = el.to::<Overflow>();
-            match key.code {
-                KeyCode::Char('k') | KeyCode::Up => overflow.scroll_up_by(3),
-                KeyCode::Char('j') | KeyCode::Down => overflow.scroll_down_by(3),
-                _ => {}
-            }
-        });
-    }
-
-    fn message(
-        &mut self,
-        _: Self::Message,
-        state: &mut Self::State,
-        _: anathema::widgets::Elements<'_, '_>,
-        _: anathema::prelude::Context<'_, Self::State>,
-    ) {
-        state
-            .list
-            .push_back(format!("message: {}", state.state.message));
-    }
-}
-
-struct ComponentIndex {
-    component: ComponentId<String>,
-}
-
-impl Component for ComponentIndex {
-    type Message = ();
-    type State = ();
-
-    fn on_mouse(
-        &mut self,
-        mouse: anathema::component::MouseEvent,
-        _: &mut Self::State,
-        mut elements: anathema::widgets::Elements<'_, '_>,
-        context: anathema::prelude::Context<'_, Self::State>,
-    ) {
-        if mouse.lsb_down() {
-            elements
-                .at_position(mouse.pos())
-                .by_attribute("id", "button")
-                .first(|_, _| context.emit(self.component, "".into()));
-        }
-    }
-}
-
-impl ComponentIndex {
-    pub fn new(component: ComponentId<String>) -> Self {
-        Self { component }
+        Self { item }
     }
 }
 
 fn main() {
+    setup_hook();
+    setup_logger("log");
+
+    let data = std::fs::read_to_string("examples/tasks.tl").unwrap();
+
+    let task_list = TaskList::deserialize(data.to_string()).expect("failed with");
+
     let document = Document::new("@main");
 
     let backend = TuiBackend::builder()
@@ -129,18 +47,16 @@ fn main() {
 
     let mut runtime = Runtime::builder(document, backend);
 
-    let data = std::fs::read_to_string("./examples/tasks.tl").unwrap();
+    let selection_state = TaskSelectionState::new(Task::new(task_list));
 
-    let task_list = TaskList::deserialize(data.to_string()).expect("failed to parse file");
-
-    let list_state = ListState::new(Task::new(task_list));
+    tracing::info!("{}", selection_state);
 
     let list = runtime
-        .register_component::<ComponentList>(
-            "list",
+        .register_component::<TaskSelection>(
+            "selection",
             "./templates/list.aml",
-            ComponentList {},
-            list_state,
+            TaskSelection {},
+            selection_state,
         )
         .expect("failed to register list component");
 
@@ -152,4 +68,32 @@ fn main() {
     );
 
     runtime.finish().unwrap().run();
+}
+
+fn setup_hook() {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let mut stdout = std::io::stdout();
+        let _ = write!(stdout, "\x1B[0 q");
+        _ = Screen::new((0, 0)).restore(stdout);
+        hook(info);
+    }));
+}
+
+fn setup_logger<P: AsRef<Path>>(file: P) {
+    _ = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(file.as_ref())
+        .expect("truncating log file failed");
+
+    let appender = tracing_appender::rolling::never(".", file);
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(appender)
+        .with_ansi(false)
+        .finish();
+
+    let _ = tracing::subscriber::set_global_default(subscriber);
 }

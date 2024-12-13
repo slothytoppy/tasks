@@ -1,4 +1,5 @@
 vstack 
   overflow
-    for value in list 
-      text value 
+    hstack
+      for value in selection
+        text value " "

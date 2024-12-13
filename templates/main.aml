@@ -1,12 +1,13 @@
 vstack [background: #282727]
     expand [factor: 7]
         border 
-          @list
+          @selection
 
     expand [factor: 3]
         border [background: #393836]
             vstack
                 align [alignment: "center"]
                     border [background: #658594, id: "button"]
-                        padding [top: 2, bottom: 2, left: 5, right: 5]
+                        //padding [top: 2, bottom: 2, left: 5, right: 5]
+                        padding [padding: 1]
                             text "Send a message"
