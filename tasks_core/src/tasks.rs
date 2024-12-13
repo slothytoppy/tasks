@@ -1,98 +1,19 @@
 use crate::iterator::*;
-use std::ops::Range;
+use crate::parser::*;
 use std::{fmt::Display, path::PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TaskError {
     NoFile(String),
     NoData,
-    ParseError((char, usize)),
-}
-
-#[derive(Debug, Default)]
-struct Parser {
-    source: String,
-    offset: usize,
-}
-
-impl Parser {
-    fn new(source: String) -> Self {
-        Self { source, offset: 0 }
-    }
-
-    fn parse(&mut self) -> Result<TaskList, TaskError> {
-        if self.source.is_empty() {
-            return Err(TaskError::NoData);
-        }
-        let mut name: &str;
-        let mut data: &str;
-        let mut status: (usize, bool);
-        let mut offset = 0;
-
-        let mut list = TaskList::default();
-
-        for (i, ch) in self.source.chars().enumerate() {
-            if ch == ']' {
-                name = &self.source[self.parse_header(offset)?];
-                offset = i;
-                status = self.parse_status(i + 1)?;
-                offset += status.0;
-                data = self.parse_data(offset)?;
-                list.push(TaskItem::new(
-                    name.trim().to_string(),
-                    data.trim().to_string(),
-                    status.1,
-                ))
-            }
-        }
-
-        self.offset = offset;
-        Ok(list)
-    }
-
-    fn parse_header(&self, offset: usize) -> Result<Range<usize>, TaskError> {
-        let mut start = 0;
-        for (i, ch) in self.source.chars().skip(offset).enumerate() {
-            if ch == '[' {
-                start = i + 1;
-            }
-            if ch == ']' {
-                return Ok(offset + start..i + offset);
-            }
-        }
-        Err(TaskError::NoData)
-    }
-
-    fn parse_status(&self, offset: usize) -> Result<(usize, bool), TaskError> {
-        let mut skip = 0;
-        for (i, ch) in self.source.chars().skip(offset).enumerate() {
-            match ch {
-                '0' => return Ok((i + 1 + skip, false)),
-                '1' => return Ok((i + 1 + skip, true)),
-                '\n' | '\t' | ' ' => skip += 1,
-                _ => {
-                    return Err(TaskError::ParseError((ch, i)));
-                }
-            };
-        }
-        Err(TaskError::NoData)
-    }
-
-    fn parse_data(&self, offset: usize) -> Result<&str, TaskError> {
-        for (i, ch) in self.source.chars().skip(offset).enumerate() {
-            if ch == '[' {
-                return Ok(&self.source[offset..offset + i]);
-            }
-        }
-        Ok(&self.source[offset..])
-    }
+    ParseError(String),
 }
 
 impl Display for TaskError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskError::ParseError((ch, idx)) => {
-                write!(f, "Failed to parse: {:#?} at index {}", ch, idx)
+            TaskError::ParseError(str) => {
+                write!(f, "Failed to parse: {}", str)
             }
             TaskError::NoFile(file) => write!(f, "ENOFILE: {file}"),
             TaskError::NoData => write!(f, "No data to parse"),
@@ -100,8 +21,114 @@ impl Display for TaskError {
     }
 }
 
-pub fn open<P: AsRef<std::path::Path>>(file: P) -> std::io::Result<std::fs::File> {
-    std::fs::File::open(file)
+#[derive(Default, Debug, Clone)]
+struct TaskName {
+    name: String,
+}
+
+impl TaskName {
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+struct TaskData {
+    data: String,
+}
+
+impl TaskData {
+    pub fn new(data: String) -> Self {
+        Self { data }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+struct TaskStatus {
+    status: bool,
+}
+
+impl Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let status = match self.status {
+            true => "true",
+            false => "false",
+        };
+
+        f.write_str(status)
+    }
+}
+
+impl TaskStatus {
+    pub fn new(status: bool) -> Self {
+        Self { status }
+    }
+}
+
+impl std::fmt::Binary for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut buff = String::default();
+        match self.status {
+            true => buff.push('1'),
+            false => buff.push('0'),
+        };
+
+        buff.push('\0');
+
+        f.write_str(&buff)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TaskItem {
+    name: TaskName,
+    status: TaskStatus,
+    data: TaskData,
+}
+
+impl Display for TaskItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "[{}]\n{}\n{}\n",
+            self.name(),
+            self.status,
+            self.data()
+        ))
+    }
+}
+
+impl TaskItem {
+    pub fn new(name: String, data: String, status: bool) -> Self {
+        Self {
+            name: TaskName::new(name),
+            data: TaskData::new(data),
+            status: TaskStatus::new(status),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name.name
+    }
+
+    pub fn data(&self) -> &str {
+        &self.data.data
+    }
+
+    pub fn status(&self) -> bool {
+        self.status.status
+    }
+
+    pub fn set_name(&mut self, name: String) {
+        self.name = TaskName::new(name)
+    }
+
+    pub fn set_data(&mut self, data: String) {
+        self.data = TaskData::new(data)
+    }
+
+    pub fn set_status(&mut self, status: bool) {
+        self.status = TaskStatus::new(status)
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -123,9 +150,16 @@ impl TaskList {
     pub fn serialize(&self, file: PathBuf) {
         let mut buff = String::default();
         self.clone().iter().for_each(|item| {
-            buff.push_str(&format!("[{}]\n{} {}\n", item.name, item.status, item.data));
+            buff.push_str(&format!(
+                "{}\n{:b}{}\n",
+                item.name(),
+                item.status,
+                item.data()
+            ));
         });
-        let _ = std::fs::write(file, buff);
+        if let Err(e) = std::fs::write(file, buff) {
+            panic!("{e}");
+        }
     }
 
     pub fn deserialize(source: String) -> Result<Self, TaskError> {
@@ -150,6 +184,10 @@ impl TaskList {
 
     pub fn set(&mut self, idx: usize, task: TaskItem) {
         self.list.insert(idx, task)
+    }
+
+    pub fn remove(&mut self, idx: usize) {
+        self.list.remove(idx);
     }
 }
 
