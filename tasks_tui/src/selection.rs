@@ -66,7 +66,10 @@ impl Component for TaskSelection {
                     return;
                 }
 
-                let mut index = state.selected.to_ref().unwrap();
+                let mut index = match state.selected.to_ref().to_number() {
+                    Some(num) => num.as_uint(),
+                    None => return,
+                };
 
                 if index.saturating_sub(1) > state.selection.len() {
                     return;

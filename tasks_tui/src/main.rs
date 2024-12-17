@@ -45,6 +45,10 @@ impl Component for App {
     type State = AppState;
     type Message = ();
 
+    fn accept_focus(&self) -> bool {
+        false
+    }
+
     fn receive(
         &mut self,
         ident: &str,
