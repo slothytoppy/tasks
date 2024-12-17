@@ -50,7 +50,7 @@ impl Component for App {
         ident: &str,
         value: anathema::state::CommonVal<'_>,
         state: &mut Self::State,
-        mut elements: anathema::widgets::Elements<'_, '_>,
+        _elements: anathema::widgets::Elements<'_, '_>,
         mut context: anathema::prelude::Context<'_, Self::State>,
     ) {
         context.set_focus("id", 1);

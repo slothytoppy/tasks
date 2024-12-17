@@ -24,10 +24,6 @@ impl TaskEditorState {
         self.content.to_mut().push(ch)
     }
 
-    pub fn set(&mut self, idx: usize, ch: char) {
-        self.content.to_mut().insert(idx, ch)
-    }
-
     pub fn remove(&mut self, idx: usize) {
         self.content.to_mut().remove(idx.saturating_sub(1));
     }
@@ -45,8 +41,8 @@ impl Component for TaskEditor {
         &mut self,
         message: Self::Message,
         state: &mut Self::State,
-        mut elements: anathema::widgets::Elements<'_, '_>,
-        mut context: anathema::prelude::Context<'_, Self::State>,
+        _elements: anathema::widgets::Elements<'_, '_>,
+        _context: anathema::prelude::Context<'_, Self::State>,
     ) {
         state.idx = message.len();
         state.content.set(message);
@@ -74,14 +70,5 @@ impl Component for TaskEditor {
             KeyCode::Right => state.idx += 1,
             _ => {}
         }
-    }
-
-    fn on_mouse(
-        &mut self,
-        _mouse: anathema::component::MouseEvent,
-        _state: &mut Self::State,
-        _elements: anathema::widgets::Elements<'_, '_>,
-        _context: anathema::prelude::Context<'_, Self::State>,
-    ) {
     }
 }

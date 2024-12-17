@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 
 use anathema::{
     component::{Component, MouseEvent, MouseState},
@@ -93,21 +93,23 @@ impl Component for TaskSelection {
             return;
         }
 
-        let y = mouse.pos().y as usize;
+        let pos = mouse.pos();
+        let (x, y) = (pos.x as usize, pos.y as usize);
 
         let mut line: usize = 0;
         for (i, task) in state.list.to_ref().item.iter().enumerate() {
             if y == i + 1 {
-                state.selected.set(Some(line));
-                let idx = state.selected.to_ref().to_number();
-                state.selected_item = Value::new(if let Some(idx) = idx {
-                    match state.list.to_ref().item.get(idx.as_uint()) {
-                        Some(task) => task.to_string(),
-                        None => String::default(),
+                state.selected_item = match state.list.to_ref().item.get(line) {
+                    Some(task) => {
+                        if x <= task.name().len() {
+                            state.selected.set(Some(line));
+                            Value::new(task.to_string())
+                        } else {
+                            break;
+                        }
                     }
-                } else {
-                    String::default()
-                });
+                    None => Value::new(String::default()),
+                };
                 context.publish("selected", |state| &state.selected_item);
                 break;
             }
