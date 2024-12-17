@@ -1,0 +1,6 @@
+vstack
+  position [top: 0]
+  expand
+    border
+      expand
+        text content

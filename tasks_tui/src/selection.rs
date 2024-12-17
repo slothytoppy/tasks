@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
 use anathema::{
-    component::{Component, KeyCode, MouseEvent, MouseState},
+    component::{Component, MouseEvent, MouseState},
     default_widgets::Overflow,
-    state::{List, State, Value},
+    state::{CommonVal, List, State, Value},
 };
 
 use crate::Task;
@@ -11,35 +11,46 @@ use crate::Task;
 #[derive(Default, Debug, State)]
 pub struct TaskSelectionState {
     selection: Value<List<String>>,
-    #[state_ignore]
-    list: Task,
-    #[state_ignore]
-    selected: usize,
+    border_width: Value<usize>,
+    selected: Value<Option<usize>>,
+    selected_item: Value<String>,
+    list: Value<Task>,
+}
+
+impl State for Task {
+    fn to_common(&self) -> Option<anathema::state::CommonVal<'_>> {
+        Some(CommonVal::Str("hello"))
+    }
 }
 
 impl Display for TaskSelectionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.selection
-            .to_ref()
-            .iter()
-            .for_each(|item| tracing::info!("{:?}", item.to_ref()));
-        Ok(())
+        f.write_str(&format!("{:?}", self.selected.to_ref().to_number()))
     }
 }
 
 impl TaskSelectionState {
     pub fn new(list: Task) -> Self {
         let mut data = List::empty();
+        let mut border_width = 0;
 
         for item in &list.item.list {
             let name = item.name().to_string();
+            if name.len() > border_width {
+                border_width = name.len();
+            }
             data.push_back(name);
         }
 
+        // += 2 because the left and right sides of the border are 1 cell
+        border_width += 9;
+
         Self {
             selection: data,
-            list,
-            selected: 0,
+            list: Value::new(list),
+            border_width: Value::new(border_width),
+            selected: Value::new(None),
+            ..Default::default()
         }
     }
 }
@@ -67,7 +78,7 @@ impl Component for TaskSelection {
         mouse: MouseEvent,
         state: &mut Self::State,
         mut elements: anathema::widgets::Elements<'_, '_>,
-        mut _context: anathema::prelude::Context<'_, Self::State>,
+        mut context: anathema::prelude::Context<'_, Self::State>,
     ) {
         elements.by_tag("overflow").first(|el, _| {
             let overflow = el.to::<Overflow>();
@@ -77,21 +88,30 @@ impl Component for TaskSelection {
                 _ => {}
             }
         });
+
         if !mouse.lsb_down() {
             return;
         }
 
         let y = mouse.pos().y as usize;
+
         let mut line: usize = 0;
-        for (i, task) in state.list.item.iter().enumerate() {
-            let range = line.saturating_sub(3)..=line + 3;
-            if range.contains(&y) {
-                state.selected = line;
-                tracing::info!("index = {}", i);
+        for (i, task) in state.list.to_ref().item.iter().enumerate() {
+            if y == i + 1 {
+                state.selected.set(Some(line));
+                let idx = state.selected.to_ref().to_number();
+                state.selected_item = Value::new(if let Some(idx) = idx {
+                    match state.list.to_ref().item.get(idx.as_uint()) {
+                        Some(task) => task.to_string(),
+                        None => String::default(),
+                    }
+                } else {
+                    String::default()
+                });
+                context.publish("selected", |state| &state.selected_item);
                 break;
             }
-            line += task.name().lines().count() + task.data().lines().count() + 1;
-            // task status is a line
+            line += task.name().lines().count();
         }
     }
 }

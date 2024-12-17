@@ -1,4 +1,0 @@
-2024-12-13T06:21:00.588522Z  INFO tasks_tui::selection: Shared { state: "task1" }
-2024-12-13T06:21:00.588540Z  INFO tasks_tui::selection: Shared { state: "task2" }
-2024-12-13T06:21:00.588553Z  INFO tasks_tui::selection: Shared { state: "task3" }
-2024-12-13T06:21:00.588499Z  INFO tasks_tui: 

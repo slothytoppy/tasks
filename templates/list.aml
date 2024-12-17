@@ -1,5 +1,8 @@
-vstack 
-  overflow
-    hstack
+border [width: border_width]
+  column
+    overflow
       for value in selection
-        text value " "
+        if loop == selected 
+          text [background: "red"] value
+        else 
+          text value

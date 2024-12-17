@@ -1,8 +1,14 @@
 use anathema::backend::tui::Screen;
 use anathema::backend::tui::TuiBackend;
+use anathema::component::Component;
+use anathema::component::ComponentId;
 use anathema::runtime::Runtime;
+use anathema::state::State;
 use anathema::templates::Document;
+use task_editor::TaskEditor;
+use task_editor::TaskEditorState;
 
+use std::fmt::Display;
 use std::fs::OpenOptions;
 use std::path::Path;
 use tracing_subscriber::FmtSubscriber;
@@ -10,10 +16,9 @@ use tracing_subscriber::FmtSubscriber;
 use std::io::Write;
 use tasks_core::tasks::*;
 
-mod component_index;
 mod selection;
+mod task_editor;
 
-use component_index::*;
 use selection::*;
 
 #[derive(Default, Debug)]
@@ -21,10 +26,44 @@ struct Task {
     item: TaskList,
 }
 
+impl Display for Task {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.item.to_string())
+    }
+}
+
 impl Task {
     pub fn new(item: TaskList) -> Self {
         Self { item }
     }
+}
+
+#[derive(Default)]
+struct App;
+
+impl Component for App {
+    type State = AppState;
+    type Message = ();
+
+    fn receive(
+        &mut self,
+        ident: &str,
+        value: anathema::state::CommonVal<'_>,
+        state: &mut Self::State,
+        mut elements: anathema::widgets::Elements<'_, '_>,
+        mut context: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        context.set_focus("id", 1);
+        context.emit(state.id, value.to_string());
+        tracing::info!("app ident: {ident}");
+        tracing::info!("app value: {value}");
+    }
+}
+
+#[derive(Debug, State)]
+struct AppState {
+    #[state_ignore]
+    id: ComponentId<String>,
 }
 
 fn main() {
@@ -47,25 +86,27 @@ fn main() {
 
     let mut runtime = Runtime::builder(document, backend);
 
+    let id = runtime
+        .register_component(
+            "editor",
+            "./templates/task_editor.aml",
+            TaskEditor {},
+            TaskEditorState::new("".to_string()),
+        )
+        .unwrap();
+
+    let _ = runtime.register_component("main", "./templates/main.aml", App {}, AppState { id });
+
     let selection_state = TaskSelectionState::new(Task::new(task_list));
 
-    tracing::info!("{}", selection_state);
-
-    let list = runtime
-        .register_component::<TaskSelection>(
+    let _ = runtime
+        .register_component(
             "selection",
             "./templates/list.aml",
             TaskSelection {},
             selection_state,
         )
         .expect("failed to register list component");
-
-    let _ = runtime.register_component::<ComponentIndex>(
-        "main",
-        "./templates/main.aml",
-        ComponentIndex::new(list),
-        (),
-    );
 
     runtime.finish().unwrap().run();
 }
