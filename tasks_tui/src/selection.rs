@@ -3,6 +3,7 @@ use anathema::{
     default_widgets::Overflow,
     state::{List, State, Value},
 };
+use tracing::trace;
 
 use crate::Task;
 
@@ -14,8 +15,6 @@ pub struct TaskSelectionState {
     selected_item: Value<String>,
     #[state_ignore]
     list: Task,
-    #[state_ignore]
-    selected_idx: usize,
 }
 
 impl TaskSelectionState {
@@ -66,10 +65,11 @@ impl Component for TaskSelection {
                     return;
                 }
 
-                let mut index = match state.selected.to_ref().to_number() {
-                    Some(num) => num.as_uint(),
-                    None => return,
-                };
+                let mut index = state
+                    .selected
+                    .to_ref()
+                    .to_number()
+                    .map_or(0, |n| n.as_uint());
 
                 if index.saturating_sub(1) > state.selection.len() {
                     return;
@@ -83,7 +83,6 @@ impl Component for TaskSelection {
                     let item = str.to_ref().to_string();
                     state.selected_item.set(item);
 
-                    state.selected_idx = index;
                     state.selected.set(Some(index));
                 }
             }
@@ -121,6 +120,15 @@ impl Component for TaskSelection {
             // we want to skip the top border,
             // we do i + 1 so that clicking on line 1 returns the first task
             if y == i + 1 {
+                if line
+                    == state
+                        .selected
+                        .to_number()
+                        .map_or(state.selection.len() + 1, |n| n.as_uint())
+                {
+                    state.selected.set(None);
+                    break;
+                }
                 if let Some(task) = state.list.item.get(line) {
                     if x <= task.name().len() {
                         state.selected.set(Some(line));
