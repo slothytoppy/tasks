@@ -1,9 +1,7 @@
-use std::{fmt::Display, ops::Deref};
-
 use anathema::{
-    component::{Component, MouseEvent, MouseState},
+    component::{Component, KeyCode, MouseEvent, MouseState},
     default_widgets::Overflow,
-    state::{CommonVal, List, State, Value},
+    state::{List, State, Value},
 };
 
 use crate::Task;
@@ -14,19 +12,10 @@ pub struct TaskSelectionState {
     border_width: Value<usize>,
     selected: Value<Option<usize>>,
     selected_item: Value<String>,
-    list: Value<Task>,
-}
-
-impl State for Task {
-    fn to_common(&self) -> Option<anathema::state::CommonVal<'_>> {
-        Some(CommonVal::Str("hello"))
-    }
-}
-
-impl Display for TaskSelectionState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:?}", self.selected.to_ref().to_number()))
-    }
+    #[state_ignore]
+    list: Task,
+    #[state_ignore]
+    selected_idx: usize,
 }
 
 impl TaskSelectionState {
@@ -47,7 +36,7 @@ impl TaskSelectionState {
 
         Self {
             selection: data,
-            list: Value::new(list),
+            list,
             border_width: Value::new(border_width),
             selected: Value::new(None),
             ..Default::default()
@@ -62,15 +51,43 @@ impl Component for TaskSelection {
     type State = TaskSelectionState;
     type Message = String;
 
-    fn message(
+    fn on_key(
         &mut self,
-        message: Self::Message,
+        key: anathema::component::KeyEvent,
         state: &mut Self::State,
         _elements: anathema::widgets::Elements<'_, '_>,
         _context: anathema::prelude::Context<'_, Self::State>,
     ) {
-        tracing::info!("got message {message}");
-        state.selection.push_back(message);
+        tracing::info!("from selection");
+        match key.code {
+            KeyCode::Char('x') => {
+                if state.list.item.is_empty() {
+                    state.selected_item.set(String::default());
+                    return;
+                }
+
+                let mut index = state.selected.to_ref().unwrap();
+
+                if index.saturating_sub(1) > state.selection.len() {
+                    return;
+                }
+
+                state.selection.remove(index);
+                state.list.item.remove(index);
+                index = index.saturating_sub(1);
+
+                if let Some(str) = state.selection.to_ref().get(index) {
+                    let item = str.to_ref().to_string();
+                    state.selected_item.set(item);
+
+                    state.selected_idx = index;
+                    state.selected.set(Some(index));
+                }
+            }
+            KeyCode::Char('j') => {}
+            KeyCode::Char('k') => {}
+            _ => {}
+        }
     }
 
     fn on_mouse(
@@ -97,19 +114,17 @@ impl Component for TaskSelection {
         let (x, y) = (pos.x as usize, pos.y as usize);
 
         let mut line: usize = 0;
-        for (i, task) in state.list.to_ref().item.iter().enumerate() {
+        for (i, task) in state.list.item.iter().enumerate() {
+            // we want to skip the top border,
+            // we do i + 1 so that clicking on line 1 returns the first task
             if y == i + 1 {
-                state.selected_item = match state.list.to_ref().item.get(line) {
-                    Some(task) => {
-                        if x <= task.name().len() {
-                            state.selected.set(Some(line));
-                            Value::new(task.to_string())
-                        } else {
-                            break;
-                        }
+                if let Some(task) = state.list.item.get(line) {
+                    if x <= task.name().len() {
+                        state.selected.set(Some(line));
+                        let item = task.to_string();
+                        state.selected_item.set(item);
                     }
-                    None => Value::new(String::default()),
-                };
+                }
                 context.publish("selected", |state| &state.selected_item);
                 break;
             }

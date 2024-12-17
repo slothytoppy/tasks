@@ -6,7 +6,6 @@ use anathema::{
 #[derive(Default, Debug, State)]
 pub struct TaskEditorState {
     content: Value<String>,
-    is_selected: Value<bool>,
     #[state_ignore]
     idx: usize,
 }
@@ -16,7 +15,6 @@ impl TaskEditorState {
         Self {
             idx: content.len(),
             content: content.into(),
-            is_selected: Value::new(false),
         }
     }
 
@@ -34,7 +32,6 @@ pub struct TaskEditor;
 
 impl Component for TaskEditor {
     type State = TaskEditorState;
-
     type Message = String;
 
     fn message(
