@@ -133,14 +133,13 @@ impl TaskItem {
 
 #[derive(Default, Debug, Clone)]
 pub struct TaskList {
+    pub source: String,
     pub list: Vec<TaskItem>,
 }
 
 impl TaskList {
     pub fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
+        TaskList::default()
     }
 
     pub fn iter(&self) -> TaskIter<'_> {
@@ -163,7 +162,7 @@ impl TaskList {
     }
 
     pub fn deserialize(source: String) -> Result<Self, TaskError> {
-        Parser::new(source).parse()
+        TaskList::default().parse(source)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -188,6 +187,44 @@ impl TaskList {
 
     pub fn remove(&mut self, idx: usize) {
         self.list.remove(idx);
+    }
+
+    pub fn parse_name(&self, offset: usize) -> Result<&str, TaskError> {
+        for (i, ch) in self.source.bytes().skip(offset).enumerate() {
+            if ch == b'\0' {
+                return Ok(&self.source[offset..offset + i]);
+            }
+        }
+        println!("parse_header no data");
+        Err(TaskError::NoData)
+    }
+
+    pub fn parse_status(&self, offset: usize) -> Result<bool, TaskError> {
+        let mut status = false;
+
+        for ch in self.source.bytes().skip(offset) {
+            match ch {
+                b'0' => status = false,
+                b'1' => status = true,
+                b'\0' => return Ok(status),
+                _ => {
+                    return Err(TaskError::ParseError(format!(
+                        "expected '0' or '1', found {ch}"
+                    )));
+                }
+            };
+        }
+        println!("parse_status no data");
+        Err(TaskError::NoData)
+    }
+
+    pub fn parse_data(&self, offset: usize) -> Result<&str, TaskError> {
+        for (i, ch) in self.source.bytes().skip(offset).enumerate() {
+            if ch == b'\0' {
+                return Ok(&self.source[offset..offset + i]);
+            }
+        }
+        Ok(&self.source[offset..])
     }
 }
 
