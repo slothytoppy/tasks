@@ -51,7 +51,7 @@ impl Component for App {
 
     fn receive(
         &mut self,
-        ident: &str,
+        _ident: &str,
         value: anathema::state::CommonVal<'_>,
         state: &mut Self::State,
         _elements: anathema::widgets::Elements<'_, '_>,
@@ -59,8 +59,6 @@ impl Component for App {
     ) {
         context.set_focus("id", 1);
         context.emit(state.id, value.to_string());
-        tracing::info!("app ident: {ident}");
-        tracing::info!("app value: {value}");
     }
 }
 

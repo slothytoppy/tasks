@@ -709,6 +709,9 @@ dependencies = [
 [[package]]
 name = "tasks_core"
 version = "0.1.0"
+dependencies = [
+ "tracing",
+]
 
 [[package]]
 name = "tasks_tui"

@@ -3,7 +3,6 @@ use anathema::{
     default_widgets::Overflow,
     state::{List, State, Value},
 };
-use tracing::trace;
 
 use crate::Task;
 
@@ -60,7 +59,7 @@ impl Component for TaskSelection {
         tracing::info!("from selection");
         match key.code {
             KeyCode::Char('x') => {
-                if state.list.item.is_empty() {
+                if state.list.item.is_empty() | state.selected.to_ref().is_none() {
                     state.selected_item.set(String::default());
                     return;
                 }
@@ -120,11 +119,10 @@ impl Component for TaskSelection {
             // we want to skip the top border,
             // we do i + 1 so that clicking on line 1 returns the first task
             if y == i + 1 {
-                if line
-                    == state
-                        .selected
-                        .to_number()
-                        .map_or(state.selection.len() + 1, |n| n.as_uint())
+                if state
+                    .selected
+                    .to_number()
+                    .is_some_and(|n| n.as_uint() == line)
                 {
                     state.selected.set(None);
                     break;
@@ -136,7 +134,9 @@ impl Component for TaskSelection {
                         state.selected_item.set(item);
                     }
                 }
-                context.publish("selected", |state| &state.selected_item);
+                context.publish("selected", |state| {
+                    &state.selected_item
+                });
                 break;
             }
             line += task.name().lines().count();

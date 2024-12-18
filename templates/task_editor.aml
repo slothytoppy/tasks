@@ -1,6 +1,10 @@
-vstack
-  position [top: 0]
+border
   expand
     border
-      expand
-        text content
+      vstack
+        border
+          text name
+        border 
+          text status
+        border 
+          text data
