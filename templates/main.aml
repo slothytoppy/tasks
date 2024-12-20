@@ -1,4 +1,4 @@
 hstack [background: #282727]
-  @selection (selected->selected_task) 
+  @selection (selection_bar->task) [id: 0]
   expand
     @editor [id: 1]

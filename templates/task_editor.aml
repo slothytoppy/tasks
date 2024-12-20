@@ -1,10 +1,11 @@
 border
   expand
     border
-      vstack
-        border
-          text name
-        border 
-          text status
-        border 
-          text data
+      if is_selected 
+        vstack
+          border [id: 0]
+            text name
+          border [id: 1]
+            text status
+          border [id: 2]
+            text data

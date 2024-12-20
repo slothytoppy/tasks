@@ -47,7 +47,7 @@ pub struct TaskSelection;
 
 impl Component for TaskSelection {
     type State = TaskSelectionState;
-    type Message = String;
+    type Message = ();
 
     fn on_key(
         &mut self,
@@ -134,9 +134,7 @@ impl Component for TaskSelection {
                         state.selected_item.set(item);
                     }
                 }
-                context.publish("selected", |state| {
-                    &state.selected_item
-                });
+                context.publish("selection_bar", |state| &state.selected_item);
                 break;
             }
             line += task.name().lines().count();

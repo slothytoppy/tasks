@@ -1,4 +1,4 @@
-use std::{fmt::Display};
+use std::{fmt::Display, ops::Range};
 
 use anathema::{
     component::{Component, KeyCode},
@@ -8,32 +8,109 @@ use tasks_core::{
     parser::{Parser, ParserState},
     tasks::TaskError,
 };
+use tracing::trace;
+
+#[derive(Clone, Debug, PartialEq)]
+enum EditingState {
+    Name,
+    Status,
+    Data,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Direction {
+    Left,
+    Right,
+}
 
 #[derive(Default, Debug, State)]
 pub struct TaskEditorState {
-    content: Value<String>,
+    is_selected: Value<bool>,
     name: Value<String>,
-    status: Value<Option<bool>>,
+    status: Value<bool>,
     data: Value<String>,
     #[state_ignore]
     idx: usize,
+    #[state_ignore]
+    selected: Option<EditingState>,
 }
 
 impl TaskEditorState {
     pub fn new(content: String) -> Self {
         Self {
             idx: content.len(),
-            content: content.into(),
             ..Default::default()
         }
     }
 
-    pub fn push(&mut self, ch: char) {
-        self.content.to_mut().push(ch)
+    pub fn push(&mut self, idx: usize, ch: char) {
+        let Some(ref state) = self.selected else {
+            return;
+        };
+        match state {
+            EditingState::Name => {
+                self.name.to_mut().insert(idx, ch);
+                self.idx += 1;
+            }
+            EditingState::Data => {
+                self.data.to_mut().insert(idx, ch);
+                self.idx += 1;
+            }
+            _ => {}
+        }
     }
 
     pub fn remove(&mut self, idx: usize) {
-        self.content.to_mut().remove(idx.saturating_sub(1));
+        if self.idx == 0 {
+            return;
+        }
+        let Some(ref state) = self.selected else {
+            return;
+        };
+        match state {
+            EditingState::Name => {
+                self.name.to_mut().remove(idx);
+                self.idx -= 1;
+            }
+            EditingState::Data => {
+                self.data.to_mut().remove(idx);
+                self.idx -= 1;
+            }
+            _ => {}
+        }
+    }
+
+    pub fn move_direction(&mut self, direction: Direction) {
+        let Some(ref state) = self.selected else {
+            return;
+        };
+        match direction {
+            Direction::Left => match state {
+                EditingState::Status => {}
+                _ => {
+                    if self.idx > 0 {
+                        self.idx -= 1;
+                    }
+                }
+            },
+            Direction::Right => match state {
+                EditingState::Name => {
+                    if self.idx < self.name.to_ref().len().saturating_sub(1) {
+                        self.idx += 1;
+                    }
+                }
+                EditingState::Data => {
+                    if self.idx < self.data.to_ref().len().saturating_sub(1) {
+                        self.idx += 1;
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    pub fn toggle_status(&mut self) {
+        self.status.set(self.status.to_bool());
     }
 }
 
@@ -64,9 +141,9 @@ impl Parser<TaskEditorState, TaskError> for TaskEditorState {
                 }
                 ParserState::Status => {
                     if line.eq("true") {
-                        editor.status.set(Some(true));
+                        editor.status.set(true);
                     } else if line.eq("false") {
-                        editor.status.set(Some(false));
+                        editor.status.set(false);
                     } else {
                         return Err(TaskError::ParseError("Incorrect status".to_string()));
                     }
@@ -85,6 +162,87 @@ impl Component for TaskEditor {
     type State = TaskEditorState;
     type Message = String;
 
+    fn on_mouse(
+        &mut self,
+        mouse: anathema::component::MouseEvent,
+        state: &mut Self::State,
+        mut elements: anathema::widgets::Elements<'_, '_>,
+        mut _context: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        // if layout changes, this sucks
+        if mouse.x < 12 && !mouse.lsb_down() {
+            return;
+        }
+        let name_start = 2..4;
+        let status_start = 5..7;
+        let data_start = 8..10;
+        elements.by_tag("border").each(|el, _| {
+            if name_start.contains(&mouse.y) {
+                state.selected = Some(EditingState::Name);
+                state.idx = state.name.to_ref().len();
+                tracing::info!("EDITING NAME");
+            }
+            if status_start.contains(&mouse.y) {
+                state.selected = Some(EditingState::Status);
+                state.idx = match state.status.to_ref().to_bool() {
+                    true => 4,
+                    false => 5,
+                };
+                tracing::info!("EDITING STATUS");
+            }
+            if data_start.contains(&mouse.y) {
+                state.selected = Some(EditingState::Data);
+                state.idx = state.data.to_ref().len();
+                tracing::info!("EDITING DATA");
+            }
+            //tracing::info!("el: {el:?}")
+        });
+    }
+
+    fn on_key(
+        &mut self,
+        key: anathema::component::KeyEvent,
+        state: &mut Self::State,
+        _elements: anathema::widgets::Elements<'_, '_>,
+        _context: anathema::prelude::Context<'_, Self::State>,
+    ) {
+        if state.selected.is_none() {
+            return;
+        }
+        if let Some(selected) = &state.selected {
+            match selected {
+                EditingState::Status => {
+                    if let KeyCode::Char('t') = key.code {
+                        state.toggle_status()
+                    }
+                }
+                EditingState::Name | EditingState::Data => match key.code {
+                    KeyCode::Char(ch) => state.push(state.idx, ch),
+                    KeyCode::Backspace => state.remove(state.idx.saturating_sub(1)),
+                    KeyCode::Left => state.move_direction(Direction::Left),
+                    KeyCode::Right => state.move_direction(Direction::Right),
+                    _ => {}
+                },
+            }
+        }
+        //match key.code {
+        //    KeyCode::Char('t') => state.toggle_status(),
+        //    KeyCode::Char(c) => {
+        //        state.push(c);
+        //        state.idx += 1;
+        //    }
+        //    KeyCode::Backspace => {
+        //        if state.idx > 0 {
+        //            state.remove(state.idx);
+        //            state.idx -= 1;
+        //        }
+        //    }
+        //    KeyCode::Left => state.idx -= 1,
+        //    KeyCode::Right => state.idx += 1,
+        //    _ => {}
+        //}
+    }
+
     fn message(
         &mut self,
         message: Self::Message,
@@ -93,6 +251,7 @@ impl Component for TaskEditor {
         _context: anathema::prelude::Context<'_, Self::State>,
     ) {
         if let Ok(item) = state.parse(message.clone()) {
+            state.is_selected.set(true);
             state.name.set(item.name.to_ref().to_string());
             state.status.set(*item.status.to_ref());
 
@@ -122,31 +281,6 @@ impl Component for TaskEditor {
             state.data.set(str);
         } else {
             tracing::info!("failed to parse");
-        }
-        tracing::info!("parsed: {state}");
-    }
-
-    fn on_key(
-        &mut self,
-        key: anathema::component::KeyEvent,
-        state: &mut Self::State,
-        _elements: anathema::widgets::Elements<'_, '_>,
-        _context: anathema::prelude::Context<'_, Self::State>,
-    ) {
-        match key.code {
-            KeyCode::Char(c) => {
-                state.push(c);
-                state.idx += 1;
-            }
-            KeyCode::Backspace => {
-                if state.idx > 0 {
-                    state.remove(state.idx);
-                    state.idx -= 1;
-                }
-            }
-            KeyCode::Left => state.idx -= 1,
-            KeyCode::Right => state.idx += 1,
-            _ => {}
         }
     }
 }

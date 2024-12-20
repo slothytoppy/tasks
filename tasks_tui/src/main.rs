@@ -51,12 +51,16 @@ impl Component for App {
 
     fn receive(
         &mut self,
-        _ident: &str,
+        ident: &str,
         value: anathema::state::CommonVal<'_>,
         state: &mut Self::State,
         _elements: anathema::widgets::Elements<'_, '_>,
         mut context: anathema::prelude::Context<'_, Self::State>,
     ) {
+        if !ident.eq("task") {
+            tracing::info!("incorrect ident: {ident}, expected ident: task");
+            return;
+        }
         context.set_focus("id", 1);
         context.emit(state.id, value.to_string());
     }

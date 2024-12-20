@@ -3,6 +3,6 @@ border [width: border_width]
     overflow
       for value in selection
         if loop == selected 
-          text [background: "red"] value
+          text [bold: true] value
         else 
-          text value
+          text [dim: true] value
