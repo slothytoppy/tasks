@@ -11,7 +11,7 @@ impl<'iter> TaskIter<'iter> {
     }
 }
 
-impl<'iter> Iterator for TaskIter<'iter> {
+impl Iterator for TaskIter<'_> {
     type Item = TaskItem;
 
     fn next(&mut self) -> Option<Self::Item> {

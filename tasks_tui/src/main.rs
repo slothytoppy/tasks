@@ -76,9 +76,9 @@ fn main() {
     setup_hook();
     setup_logger("log");
 
-    let data = std::fs::read_to_string("examples/tasks.tl").unwrap();
-
-    let task_list = TaskList::deserialize(data.to_string()).expect("failed with");
+    let data = std::fs::read_to_string("examples/tasks1.tl").unwrap();
+    let item = TaskItem::default().parse(data.clone()).unwrap();
+    let task_list = TaskList::deserialize(data).expect("failed with");
 
     let document = Document::new("@main");
 

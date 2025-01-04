@@ -1,14 +1,12 @@
-use std::{fmt::Display, ops::Range};
+use std::fmt::Display;
 
 use anathema::{
     component::{Component, KeyCode},
     state::{State, Value},
 };
 use tasks_core::{
-    parser::{Parser, ParserState},
-    tasks::TaskError,
+    tasks::{TaskError, ParserState},
 };
-use tracing::trace;
 
 #[derive(Clone, Debug, PartialEq)]
 enum EditingState {
@@ -112,28 +110,14 @@ impl TaskEditorState {
     pub fn toggle_status(&mut self) {
         self.status.set(self.status.to_bool());
     }
-}
 
-#[derive(Default)]
-pub struct TaskEditor;
-
-impl Display for TaskEditorState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!(
-            "{:?} {:?} {:?}",
-            self.name.to_ref(),
-            self.status.to_ref(),
-            self.data.to_ref()
-        ))
-    }
-}
-
-impl Parser<TaskEditorState, TaskError> for TaskEditorState {
     fn parse(&mut self, content: String) -> Result<TaskEditorState, TaskError> {
         let mut editor = TaskEditorState::default();
         let mut state = ParserState::Name;
+        let mut data = String::default();
+        tasks_core::tasks::TaskItem::default().parse(content.clone());
 
-        for line in content.lines() {
+        for (i, line) in content.lines().enumerate() {
             match state {
                 ParserState::Name => {
                     editor.name.set(line.trim().to_string());
@@ -150,11 +134,28 @@ impl Parser<TaskEditorState, TaskError> for TaskEditorState {
                     state = ParserState::Data;
                 }
                 ParserState::Data => {
+                    data.push_str(line.trim());
                     editor.data.set(line.trim().to_string());
+                    tracing::info!("{i}");
                 }
             }
         }
+        editor.data.set(data);
         Ok(editor)
+    }
+}
+
+#[derive(Default)]
+pub struct TaskEditor;
+
+impl Display for TaskEditorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "{:?} {:?} {:?}",
+            self.name.to_ref(),
+            self.status.to_ref(),
+            self.data.to_ref()
+        ))
     }
 }
 
@@ -176,7 +177,7 @@ impl Component for TaskEditor {
         let name_start = 2..4;
         let status_start = 5..7;
         let data_start = 8..10;
-        elements.by_tag("border").each(|el, _| {
+        elements.by_tag("border").each(|_, _| {
             if name_start.contains(&mouse.y) {
                 state.selected = Some(EditingState::Name);
                 state.idx = state.name.to_ref().len();
@@ -257,9 +258,11 @@ impl Component for TaskEditor {
 
             let str = item.data.to_ref().to_string();
 
+            tracing::info!("out editor {str:?}");
+
             let mut nl = (false, false);
 
-            let str = str
+            let data = str
                 .chars()
                 .map(|c| match c {
                     '\\' => {
@@ -278,7 +281,8 @@ impl Component for TaskEditor {
                 })
                 .collect();
 
-            state.data.set(str);
+            tracing::info!("in editor {str:?}");
+            state.data.set(data);
         } else {
             tracing::info!("failed to parse");
         }
