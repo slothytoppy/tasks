@@ -4,9 +4,7 @@ use anathema::{
     component::{Component, KeyCode},
     state::{State, Value},
 };
-use tasks_core::{
-    tasks::{TaskError, ParserState},
-};
+use tasks_core::tasks::{ParserState, TaskError};
 
 #[derive(Clone, Debug, PartialEq)]
 enum EditingState {
@@ -115,7 +113,6 @@ impl TaskEditorState {
         let mut editor = TaskEditorState::default();
         let mut state = ParserState::Name;
         let mut data = String::default();
-        tasks_core::tasks::TaskItem::default().parse(content.clone());
 
         for (i, line) in content.lines().enumerate() {
             match state {
