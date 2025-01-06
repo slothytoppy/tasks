@@ -114,45 +114,107 @@ impl TaskItem {
         }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name.name
-    }
+    pub fn parse(
+        &mut self,
+        source: String,
+        mut offset: usize,
+    ) -> Result<(TaskItem, usize), TaskError> {
+        if source.is_empty() {
+            return Err(TaskError::NoData);
+        }
+        let mut state = ParserState::Name;
 
-    pub fn data(&self) -> &str {
-        &self.data.data
-    }
+        let mut tokenized_input = String::default();
 
-    pub fn status(&self) -> bool {
-        self.status.status
-    }
+        let mut repeate_space = false;
 
-    pub fn set_name(&mut self, name: String) {
-        self.name = TaskName::new(name)
-    }
+        source.chars().for_each(|ch| match ch {
+            '!'..='~' => {
+                tokenized_input.push(ch);
+            }
+            ' ' => {
+                if !repeate_space {
+                    repeate_space = true;
+                    tokenized_input.push(ch);
+                } else {
+                    repeate_space = false;
+                }
+            }
+            _ => {}
+        });
 
-    pub fn set_data(&mut self, data: String) {
-        self.data = TaskData::new(data)
-    }
+        let mut item = TaskItem::default();
 
-    pub fn set_status(&mut self, status: bool) {
-        self.status = TaskStatus::new(status)
+        for (i, ch) in tokenized_input.chars().enumerate() {
+            if state != ParserState::Data && ch == ' ' {
+                offset += 1;
+                continue;
+            }
+            if offset >= tokenized_input.len().saturating_sub(1) {
+                return Err(TaskError::Eof);
+            }
+            tracing::info!("offset: {}", offset);
+            match state {
+                ParserState::Name => {
+                    let (name, off) = item.parse_name(&tokenized_input[offset..])?;
+                    tracing::info!("name: {}", name.name);
+                    item.set_name(name.name);
+                    offset += off;
+                    state = ParserState::Status;
+                }
+
+                ParserState::Status => {
+                    let (status, off) = self.parse_status(&tokenized_input[offset..])?;
+                    tracing::info!("status: {}", status.status);
+                    item.set_status(status.status);
+                    offset += off;
+                    state = ParserState::Data;
+                }
+                ParserState::Data => {
+                    let (data, off) = self.parse_data(&tokenized_input[offset..])?;
+                    offset += off;
+                    item.set_data(data.data);
+                    return Ok((item, offset + i));
+
+                    //let (data, off) = self.parse_data(&tokenized_input[offset..])?;
+                    //tracing::info!("data: {}", data.data);
+                }
+            }
+        }
+        Err(TaskError::Eof)
     }
 
     fn parse_name(&self, source: &str) -> Result<(TaskName, usize), TaskError> {
-        let mut start = 0;
+        tracing::info!("name source: {source}");
+        let (mut found_start, mut start_idx) = (false, 0);
         for (i, ch) in source.chars().enumerate() {
+            if i == source.len().saturating_sub(1) {
+                return Err(TaskError::Eof);
+            }
             match ch {
-                '[' => start = i + 1,
+                '[' => {
+                    found_start = true;
+                    start_idx = i;
+                }
                 ']' => {
-                    return Ok((TaskName::new(source[start..i].to_string()), i + 1));
+                    if found_start {
+                        return Ok((
+                            TaskName::new(source[start_idx + 1..i].to_string()),
+                            i + start_idx + 1,
+                        ));
+                    }
+                    break;
                 }
                 _ => {}
             }
         }
-        Err(TaskError::ParseError("failed to find name".to_string()))
+        Err(TaskError::ParseError(format!(
+            "failed to find name in {source}"
+        )))
     }
 
     fn parse_status(&self, source: &str) -> Result<(TaskStatus, usize), TaskError> {
+        tracing::info!("status source: {source}");
         enum StatusState {
             Status,
             Equal,
@@ -165,30 +227,38 @@ impl TaskItem {
 
         let mut skip_amount = "status".len();
 
-        for (i, ch) in source.chars().skip(skip_amount).enumerate() {
+        for (i, ch) in source.chars().enumerate() {
+            if ch == ' ' {
+                continue;
+            }
+            if i + skip_amount >= source.len().saturating_sub(1) {
+                return Err(TaskError::Eof);
+            }
             buffer = &source[i..i + skip_amount];
             match state {
                 StatusState::Status => {
                     if buffer == "status" {
-                        tracing::info!("found status");
                         state = StatusState::Equal;
                         skip_amount = "=".len();
                     }
                 }
                 StatusState::Equal => {
-                    if buffer == "=" {
-                        tracing::info!("found `=`");
+                    if ch == '=' {
                         state = StatusState::Bool;
                         skip_amount = "true".len();
                     }
                 }
                 StatusState::Bool => {
                     if buffer == "true" {
-                        tracing::info!("found true");
-                        return Ok((TaskStatus::new(true), i + skip_amount));
+                        //tracing::info!("found true");
+                        return Ok((TaskStatus::new(true), i + "true".len().saturating_sub(1)));
                     } else if &source[i..i + "false".len()] == "false" {
-                        tracing::info!("found false");
-                        return Ok((TaskStatus::new(false), i + skip_amount));
+                        //tracing::info!("found false");
+                        return Ok((TaskStatus::new(false), i + "false".len().saturating_sub(1)));
+                    } else {
+                        return Err(TaskError::ParseError(
+                            "Syntax Error: expected 'true' or 'false'".to_string(),
+                        ));
                     }
                 }
             }
@@ -215,8 +285,8 @@ impl TaskItem {
         let mut start = 0;
 
         for (i, ch) in source.chars().enumerate() {
-            if i + skip_amount == source.len() + 1 {
-                break;
+            if i >= source.len() {
+                return Err(TaskError::Eof);
             }
             buffer = &source[i..i + skip_amount];
             match state {
@@ -234,17 +304,17 @@ impl TaskItem {
                 }
                 DataState::Content => {
                     if ch == '\"' {
-                        tracing::info!("content buffer {buffer}");
-                        tracing::info!("ch {ch}");
                         match found_quote {
                             false => {
                                 start = i + 1;
                                 found_quote = true;
                             }
                             true => {
-                                tracing::info!("found quote");
-                                tracing::info!("content buffer {buffer} start {start} i {i}");
-                                return Ok((TaskData::new(source[start..i].to_string()), start));
+                                tracing::info!("successfully parsed {}", &source[start..i]);
+                                return Ok((
+                                    TaskData::new(source[start..i].to_string()),
+                                    i.saturating_sub(1),
+                                ));
                             }
                         }
                     }
@@ -255,55 +325,28 @@ impl TaskItem {
         Err(TaskError::ParseError("failed to parse data".to_string()))
     }
 
-    pub fn parse(
-        &mut self,
-        source: String,
-        mut offset: usize,
-    ) -> Result<(TaskItem, usize), TaskError> {
-        let mut state = ParserState::Name;
+    pub fn name(&self) -> &str {
+        &self.name.name
+    }
 
-        let mut tokenized_input = String::default();
+    pub fn data(&self) -> &str {
+        &self.data.data
+    }
 
-        source.chars().for_each(|ch| {
-            if let '!'..='~' = ch {
-                tokenized_input.push(ch)
-            };
-        });
+    pub fn status(&self) -> bool {
+        self.status.status
+    }
 
-        let mut item = TaskItem::default();
+    pub fn set_name(&mut self, name: String) {
+        self.name = TaskName::new(name)
+    }
 
-        for (i, _ch) in tokenized_input.chars().enumerate() {
-            if offset + i >= tokenized_input.len() {
-                tracing::info!("EOF");
-                return Err(TaskError::Eof);
-            }
+    pub fn set_data(&mut self, data: String) {
+        self.data = TaskData::new(data)
+    }
 
-            match state {
-                ParserState::Name => {
-                    let (name, off) = item.parse_name(&tokenized_input[offset..]).unwrap();
-                    item.set_name(name.name);
-                    state = ParserState::Status;
-                    offset += off;
-                }
-
-                ParserState::Status => {
-                    let (status, off) = self.parse_status(&tokenized_input[offset..]).unwrap();
-                    item.set_status(status.status);
-                    state = ParserState::Data;
-                    offset += off;
-                }
-                ParserState::Data => {
-                    tracing::info!("parsing data {}", &tokenized_input[offset..]);
-                    let (data, off) = self.parse_data(&tokenized_input[offset..]).unwrap();
-                    offset += off;
-                    item.set_data(data.data);
-                    tracing::info!("parsed: {item:?}");
-                    return Ok((item, offset + i));
-                }
-            }
-        }
-        tracing::info!("EOF");
-        Err(TaskError::Eof)
+    pub fn set_status(&mut self, status: bool) {
+        self.status = TaskStatus::new(status)
     }
 }
 
@@ -320,6 +363,25 @@ impl TaskList {
 
     pub fn iter(&self) -> TaskIter<'_> {
         TaskIter { list: self, idx: 0 }
+    }
+
+    fn parse(&mut self, content: String) -> Result<TaskList, TaskError> {
+        let mut offset = usize::default();
+        let mut list = TaskList::default();
+
+        loop {
+            match TaskItem::default().parse(content.clone(), offset) {
+                Ok((item, off)) => {
+                    offset += off;
+                    tracing::info!("{item}");
+                    list.push(item);
+                }
+                Err(error) => match error {
+                    TaskError::Eof => return Ok(list),
+                    _ => Err(error),
+                }?,
+            }
+        }
     }
 
     pub fn serialize(&self, file: PathBuf) {
@@ -364,73 +426,6 @@ impl TaskList {
     pub fn remove(&mut self, idx: usize) {
         self.list.remove(idx);
     }
-
-    pub fn parse_name(&self, offset: usize) -> Result<&str, TaskError> {
-        for (i, ch) in self.source.bytes().skip(offset).enumerate() {
-            if ch == b'\0' {
-                return Ok(&self.source[offset..offset + i]);
-            }
-        }
-        println!("parse_header no data");
-        Err(TaskError::NoData)
-    }
-
-    pub fn parse_status(&self, offset: usize) -> Result<bool, TaskError> {
-        let mut status = false;
-
-        for ch in self.source.bytes().skip(offset) {
-            match ch {
-                b'0' => status = false,
-                b'1' => status = true,
-                b'\0' => return Ok(status),
-                _ => {
-                    return Err(TaskError::ParseError(format!(
-                        "expected '0' or '1', found {ch}"
-                    )));
-                }
-            };
-        }
-        println!("parse_status no data");
-        Err(TaskError::NoData)
-    }
-
-    pub fn parse_data(&self, offset: usize) -> Result<&str, TaskError> {
-        for (i, ch) in self.source.bytes().skip(offset).enumerate() {
-            if ch == b'\0' {
-                return Ok(&self.source[offset..offset + i]);
-            }
-        }
-        Ok(&self.source[offset..])
-    }
-
-    fn parse(&mut self, content: String) -> Result<TaskList, TaskError> {
-        if content.is_empty() {
-            return Err(TaskError::NoData);
-        }
-
-        let mut offset = usize::default();
-        let mut list = TaskList::default();
-
-        loop {
-            match TaskItem::default().parse(content.clone(), offset) {
-                Ok((item, off)) => {
-                    offset += off;
-                    tracing::info!("content offset {offset}");
-                    if offset == content.len() {
-                        break;
-                    }
-                    tracing::info!("{item}");
-                    list.push(item);
-                }
-                Err(error) => match error {
-                    TaskError::Eof => return Ok(list),
-                    _ => Err(error),
-                }?,
-            }
-        }
-
-        Ok(list)
-    }
 }
 
 impl Display for TaskList {
@@ -449,14 +444,14 @@ mod test {
     #[test]
     pub fn test_list() {
         let data = r#"[1]
-0
-bai
+status = false 
+data = "bai"
 [2]
-1
-urmom
+status = true
+data = "urmom"
 [3]
-1
-hai"#;
+status = true
+data = "hai""#;
 
         let list = match TaskList::deserialize(data.to_string()) {
             Ok(list) => {
