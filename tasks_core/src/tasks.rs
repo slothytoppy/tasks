@@ -6,7 +6,6 @@ pub enum TaskError {
     NoFile(String),
     NoData,
     ParseError(String),
-    Eof,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -14,6 +13,12 @@ pub enum ParserState {
     Name,
     Status,
     Data,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParserOffset {
+    Offset(usize),
+    Eof,
 }
 
 impl Display for TaskError {
@@ -24,7 +29,6 @@ impl Display for TaskError {
             }
             TaskError::NoFile(file) => write!(f, "ENOFILE: {file}"),
             TaskError::NoData => write!(f, "No data to parse"),
-            TaskError::Eof => write!(f, "Reached EOF/End of data"),
         }
     }
 }
@@ -116,81 +120,63 @@ impl TaskItem {
 
     pub fn parse(
         &mut self,
-        source: String,
+        source: &str,
         mut offset: usize,
-    ) -> Result<(TaskItem, usize), TaskError> {
+    ) -> Result<(TaskItem, ParserOffset), TaskError> {
         if source.is_empty() {
             return Err(TaskError::NoData);
         }
+
         let mut state = ParserState::Name;
-
-        let mut tokenized_input = String::default();
-
-        let mut repeate_space = false;
-
-        source.chars().for_each(|ch| match ch {
-            '!'..='~' => {
-                tokenized_input.push(ch);
-            }
-            ' ' => {
-                if !repeate_space {
-                    repeate_space = true;
-                    tokenized_input.push(ch);
-                } else {
-                    repeate_space = false;
-                }
-            }
-            _ => {}
-        });
 
         let mut item = TaskItem::default();
 
-        for (i, ch) in tokenized_input.chars().enumerate() {
+        tracing::info!("len {}", source.len());
+
+        for ch in source.chars() {
             if state != ParserState::Data && ch == ' ' {
                 offset += 1;
-                continue;
-            }
-            if offset >= tokenized_input.len().saturating_sub(1) {
-                return Err(TaskError::Eof);
             }
             tracing::info!("offset: {}", offset);
             match state {
                 ParserState::Name => {
-                    let (name, off) = item.parse_name(&tokenized_input[offset..])?;
+                    let (name, off) = item.parse_name(&source[offset..])?;
+                    offset += off;
                     tracing::info!("name: {}", name.name);
                     item.set_name(name.name);
-                    offset += off;
+                    tracing::info!("name offset: {offset}");
                     state = ParserState::Status;
                 }
 
                 ParserState::Status => {
-                    let (status, off) = self.parse_status(&tokenized_input[offset..])?;
+                    let (status, off) = self.parse_status(&source[offset..])?;
+                    offset += off;
                     tracing::info!("status: {}", status.status);
                     item.set_status(status.status);
-                    offset += off;
+                    tracing::info!("status offset: {offset}");
                     state = ParserState::Data;
                 }
-                ParserState::Data => {
-                    let (data, off) = self.parse_data(&tokenized_input[offset..])?;
-                    offset += off;
-                    item.set_data(data.data);
-                    return Ok((item, offset + i));
 
-                    //let (data, off) = self.parse_data(&tokenized_input[offset..])?;
-                    //tracing::info!("data: {}", data.data);
+                ParserState::Data => {
+                    let (data, off) = self.parse_data(&source[offset..])?;
+                    offset += off;
+                    tracing::info!("data: {}", data.data);
+                    tracing::info!("returned offset: {}", offset);
+                    item.set_data(data.data);
+                    if offset >= source.len().saturating_sub(1) {
+                        return Ok((item, ParserOffset::Eof));
+                    }
+                    return Ok((item, ParserOffset::Offset(offset)));
                 }
             }
         }
-        Err(TaskError::Eof)
+        Err(TaskError::NoData)
     }
 
     fn parse_name(&self, source: &str) -> Result<(TaskName, usize), TaskError> {
         tracing::info!("name source: {source}");
         let (mut found_start, mut start_idx) = (false, 0);
         for (i, ch) in source.chars().enumerate() {
-            if i == source.len().saturating_sub(1) {
-                return Err(TaskError::Eof);
-            }
             match ch {
                 '[' => {
                     found_start = true;
@@ -200,7 +186,7 @@ impl TaskItem {
                     if found_start {
                         return Ok((
                             TaskName::new(source[start_idx + 1..i].to_string()),
-                            i + start_idx + 1,
+                            i + start_idx,
                         ));
                     }
                     break;
@@ -231,9 +217,6 @@ impl TaskItem {
             if ch == ' ' {
                 continue;
             }
-            if i + skip_amount >= source.len().saturating_sub(1) {
-                return Err(TaskError::Eof);
-            }
             buffer = &source[i..i + skip_amount];
             match state {
                 StatusState::Status => {
@@ -251,10 +234,10 @@ impl TaskItem {
                 StatusState::Bool => {
                     if buffer == "true" {
                         //tracing::info!("found true");
-                        return Ok((TaskStatus::new(true), i + "true".len().saturating_sub(1)));
+                        return Ok((TaskStatus::new(true), i + "true".len()));
                     } else if &source[i..i + "false".len()] == "false" {
                         //tracing::info!("found false");
-                        return Ok((TaskStatus::new(false), i + "false".len().saturating_sub(1)));
+                        return Ok((TaskStatus::new(false), i + "false".len()));
                     } else {
                         return Err(TaskError::ParseError(
                             "Syntax Error: expected 'true' or 'false'".to_string(),
@@ -285,9 +268,6 @@ impl TaskItem {
         let mut start = 0;
 
         for (i, ch) in source.chars().enumerate() {
-            if i >= source.len() {
-                return Err(TaskError::Eof);
-            }
             buffer = &source[i..i + skip_amount];
             match state {
                 DataState::Data => {
@@ -311,10 +291,7 @@ impl TaskItem {
                             }
                             true => {
                                 tracing::info!("successfully parsed {}", &source[start..i]);
-                                return Ok((
-                                    TaskData::new(source[start..i].to_string()),
-                                    i.saturating_sub(1),
-                                ));
+                                return Ok((TaskData::new(source[start..i].to_string()), i + 1));
                             }
                         }
                     }
@@ -361,27 +338,33 @@ impl TaskList {
         TaskList::default()
     }
 
-    pub fn iter(&self) -> TaskIter<'_> {
-        TaskIter { list: self, idx: 0 }
-    }
-
     fn parse(&mut self, content: String) -> Result<TaskList, TaskError> {
         let mut offset = usize::default();
         let mut list = TaskList::default();
 
         loop {
-            match TaskItem::default().parse(content.clone(), offset) {
+            match TaskItem::default().parse(&content, offset) {
                 Ok((item, off)) => {
-                    offset += off;
-                    tracing::info!("{item}");
+                    tracing::info!("task list offset {off:?}");
+                    match off {
+                        ParserOffset::Offset(new_offset) => {
+                            offset = new_offset;
+                        }
+                        ParserOffset::Eof => {
+                            list.push(item);
+                            return Ok(list);
+                        }
+                    }
+                    tracing::info!("parsed item: {item}");
                     list.push(item);
                 }
-                Err(error) => match error {
-                    TaskError::Eof => return Ok(list),
-                    _ => Err(error),
-                }?,
+                Err(error) => return Err(error),
             }
         }
+    }
+
+    pub fn iter(&self) -> TaskIter<'_> {
+        TaskIter { list: self, idx: 0 }
     }
 
     pub fn serialize(&self, file: PathBuf) {
@@ -439,30 +422,44 @@ impl Display for TaskList {
 
 #[cfg(test)]
 mod test {
+    use std::fs::OpenOptions;
+
+    use tracing_subscriber::FmtSubscriber;
+
     use super::TaskList;
 
     #[test]
-    pub fn test_list() {
-        let data = r#"[1]
-status = false 
-data = "bai"
-[2]
+    pub fn test_parser() {
+        _ = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open("/home/slothy/programming/code/tasks/log")
+            .expect("truncating log file failed");
+
+        let appender =
+            tracing_appender::rolling::never("/home/slothy/programming/code/tasks/", "log");
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(appender)
+            .with_ansi(false)
+            .finish();
+
+        let _ = tracing::subscriber::set_global_default(subscriber);
+
+        let data = r#"[task1 urmom]
+status = false
+data = "wasd wasdwa sadwasd wasdwasd\nursogay"
+[task2]
+status = true
+data = "nothing"
+[task3]
 status = true
 data = "urmom"
-[3]
-status = true
-data = "hai""#;
-
-        let list = match TaskList::deserialize(data.to_string()) {
-            Ok(list) => {
-                println!("{list:?}");
-                list
-            }
-            Err(e) => panic!("{e}"),
-        };
-
-        assert!(list.list.len() == 3);
-
+"#;
+        let parser = TaskList::new().parse(data.to_string()).unwrap();
+        println!("{parser}");
+        assert!(parser.list.len() == 3);
         panic!();
     }
 }
