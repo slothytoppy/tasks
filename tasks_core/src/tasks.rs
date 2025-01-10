@@ -77,25 +77,11 @@ impl TaskStatus {
     }
 }
 
-impl std::fmt::Binary for TaskStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut buff = String::default();
-        match self.status {
-            true => buff.push('1'),
-            false => buff.push('0'),
-        };
-
-        buff.push('\0');
-
-        f.write_str(&buff)
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct TaskItem {
-    name: TaskName,
-    status: TaskStatus,
-    data: TaskData,
+    name: String,
+    status: bool,
+    data: String,
 }
 
 impl Display for TaskItem {
@@ -103,7 +89,7 @@ impl Display for TaskItem {
         f.write_str(&format!(
             "[{}]\n{}\n{}\n",
             self.name(),
-            self.status,
+            self.status(),
             self.data()
         ))
     }
@@ -111,27 +97,13 @@ impl Display for TaskItem {
 
 impl TaskItem {
     pub fn new(name: String, data: String, status: bool) -> Self {
-        Self {
-            name: TaskName::new(name),
-            data: TaskData::new(data),
-            status: TaskStatus::new(status),
-        }
+        Self { name, data, status }
     }
 
-    pub fn parse(
-        &mut self,
-        source: &str,
-        mut offset: usize,
-    ) -> Result<(TaskItem, ParserOffset), TaskError> {
-        if source.is_empty() {
-            return Err(TaskError::NoData);
-        }
-
+    pub fn parse(source: &str, mut offset: usize) -> Result<(TaskItem, ParserOffset), TaskError> {
         let mut state = ParserState::Name;
 
         let mut item = TaskItem::default();
-
-        tracing::info!("len {}", source.len());
 
         for ch in source.chars() {
             if state != ParserState::Data && ch == ' ' {
@@ -140,25 +112,23 @@ impl TaskItem {
             tracing::info!("offset: {}", offset);
             match state {
                 ParserState::Name => {
-                    let (name, off) = item.parse_name(&source[offset..])?;
+                    let (name, off) = TaskItem::parse_name(&source[offset..])?;
                     offset += off;
-                    tracing::info!("name: {}", name.name);
                     item.set_name(name.name);
                     tracing::info!("name offset: {offset}");
                     state = ParserState::Status;
                 }
 
                 ParserState::Status => {
-                    let (status, off) = self.parse_status(&source[offset..])?;
+                    let (status, off) = TaskItem::parse_status(&source[offset..])?;
                     offset += off;
-                    tracing::info!("status: {}", status.status);
                     item.set_status(status.status);
                     tracing::info!("status offset: {offset}");
                     state = ParserState::Data;
                 }
 
                 ParserState::Data => {
-                    let (data, off) = self.parse_data(&source[offset..])?;
+                    let (data, off) = TaskItem::parse_data(&source[offset..])?;
                     offset += off;
                     tracing::info!("data: {}", data.data);
                     tracing::info!("returned offset: {}", offset);
@@ -173,10 +143,13 @@ impl TaskItem {
         Err(TaskError::NoData)
     }
 
-    fn parse_name(&self, source: &str) -> Result<(TaskName, usize), TaskError> {
+    fn parse_name(source: &str) -> Result<(TaskName, usize), TaskError> {
         tracing::info!("name source: {source}");
         let (mut found_start, mut start_idx) = (false, 0);
         for (i, ch) in source.chars().enumerate() {
+            if ch == '\n' {
+                continue;
+            }
             match ch {
                 '[' => {
                     found_start = true;
@@ -184,14 +157,21 @@ impl TaskItem {
                 }
                 ']' => {
                     if found_start {
+                        tracing::info!("name: {}", &source[start_idx + 1..i]);
                         return Ok((
                             TaskName::new(source[start_idx + 1..i].to_string()),
-                            i + start_idx,
+                            i + start_idx + 1,
                         ));
                     }
                     break;
                 }
-                _ => {}
+                _ => {
+                    if !found_start {
+                        return Err(TaskError::ParseError(format!(
+                            "expected `[` or `]`, found {ch}"
+                        )));
+                    }
+                }
             }
         }
         Err(TaskError::ParseError(format!(
@@ -199,7 +179,7 @@ impl TaskItem {
         )))
     }
 
-    fn parse_status(&self, source: &str) -> Result<(TaskStatus, usize), TaskError> {
+    fn parse_status(source: &str) -> Result<(TaskStatus, usize), TaskError> {
         tracing::info!("status source: {source}");
         enum StatusState {
             Status,
@@ -233,10 +213,10 @@ impl TaskItem {
                 }
                 StatusState::Bool => {
                     if buffer == "true" {
-                        //tracing::info!("found true");
+                        tracing::info!("status: true");
                         return Ok((TaskStatus::new(true), i + "true".len()));
                     } else if &source[i..i + "false".len()] == "false" {
-                        //tracing::info!("found false");
+                        tracing::info!("status: false");
                         return Ok((TaskStatus::new(false), i + "false".len()));
                     } else {
                         return Err(TaskError::ParseError(
@@ -249,8 +229,9 @@ impl TaskItem {
         Err(TaskError::ParseError("failed to find status".to_string()))
     }
 
-    fn parse_data(&self, source: &str) -> Result<(TaskData, usize), TaskError> {
+    fn parse_data(source: &str) -> Result<(TaskData, usize), TaskError> {
         tracing::info!("data source {source}");
+        #[derive(PartialEq)]
         enum DataState {
             Data,
             Equal,
@@ -260,14 +241,17 @@ impl TaskItem {
         let mut state = DataState::Data;
 
         let mut buffer: &str;
+        let mut data_buffer: Vec<char> = vec![];
 
         let mut skip_amount = "data".len();
 
         let mut found_quote = false;
 
-        let mut start = 0;
-
         for (i, ch) in source.chars().enumerate() {
+            if state != DataState::Content && ch == ' ' {
+                continue;
+            }
+
             buffer = &source[i..i + skip_amount];
             match state {
                 DataState::Data => {
@@ -283,18 +267,35 @@ impl TaskItem {
                     }
                 }
                 DataState::Content => {
+                    if !found_quote && ch == ' ' {
+                        continue;
+                    }
                     if ch == '\"' {
                         match found_quote {
                             false => {
-                                start = i + 1;
                                 found_quote = true;
+                                continue;
                             }
                             true => {
-                                tracing::info!("successfully parsed {}", &source[start..i]);
-                                return Ok((TaskData::new(source[start..i].to_string()), i + 1));
+                                let data = data_buffer.iter().collect::<String>();
+                                tracing::info!("data: {data}");
+                                let data = TaskData::new(data_buffer.iter().collect::<String>());
+                                return Ok((data, i + 1));
                             }
                         }
                     }
+                    if !found_quote && !data_buffer.is_empty() {
+                        return Err(TaskError::ParseError(
+                            "data segment does not start with a `\"`".to_string(),
+                        ));
+                    }
+                    if (ch == '[' || ch == ']') && !data_buffer.is_empty() && found_quote {
+                        return Err(TaskError::ParseError(
+                            "data segment does not end with a `\"`".to_string(),
+                        ));
+                    }
+
+                    data_buffer.push(ch);
                 }
             }
         }
@@ -303,27 +304,27 @@ impl TaskItem {
     }
 
     pub fn name(&self) -> &str {
-        &self.name.name
+        &self.name
     }
 
     pub fn data(&self) -> &str {
-        &self.data.data
+        &self.data
     }
 
     pub fn status(&self) -> bool {
-        self.status.status
+        self.status
     }
 
     pub fn set_name(&mut self, name: String) {
-        self.name = TaskName::new(name)
+        self.name = name
     }
 
     pub fn set_data(&mut self, data: String) {
-        self.data = TaskData::new(data)
+        self.data = data
     }
 
     pub fn set_status(&mut self, status: bool) {
-        self.status = TaskStatus::new(status)
+        self.status = status
     }
 }
 
@@ -343,7 +344,7 @@ impl TaskList {
         let mut list = TaskList::default();
 
         loop {
-            match TaskItem::default().parse(&content, offset) {
+            match TaskItem::parse(&content, offset) {
                 Ok((item, off)) => {
                     tracing::info!("task list offset {off:?}");
                     match off {
@@ -371,7 +372,7 @@ impl TaskList {
         let mut buff = String::default();
         self.clone().iter().for_each(|item| {
             buff.push_str(&format!(
-                "{}\n{:b}{}\n",
+                "{}\n{}{}\n",
                 item.name(),
                 item.status,
                 item.data()
@@ -434,11 +435,11 @@ mod test {
             .write(true)
             .create(true)
             .truncate(true)
-            .open("/home/slothy/programming/code/tasks/log")
+            .open("/home/slothy/programming/code/tasks/test_log")
             .expect("truncating log file failed");
 
         let appender =
-            tracing_appender::rolling::never("/home/slothy/programming/code/tasks/", "log");
+            tracing_appender::rolling::never("/home/slothy/programming/code/tasks/", "test_log");
         let subscriber = FmtSubscriber::builder()
             .with_max_level(tracing::Level::TRACE)
             .with_writer(appender)
@@ -460,6 +461,5 @@ data = "urmom"
         let parser = TaskList::new().parse(data.to_string()).unwrap();
         println!("{parser}");
         assert!(parser.list.len() == 3);
-        panic!();
     }
 }
