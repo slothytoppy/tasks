@@ -1,5 +1,5 @@
 use crate::iterator::*;
-use std::{fmt::Display, path::PathBuf};
+use std::{fmt::Display, io::Write};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TaskError {
@@ -364,23 +364,14 @@ impl TaskList {
         }
     }
 
-    pub fn iter(&self) -> TaskIter<'_> {
+    pub fn iter(&self) -> TaskIter {
         TaskIter { list: self, idx: 0 }
     }
 
-    pub fn serialize(&self, file: PathBuf) {
-        let mut buff = String::default();
-        self.clone().iter().for_each(|item| {
-            buff.push_str(&format!(
-                "{}\n{}{}\n",
-                item.name(),
-                item.status,
-                item.data()
-            ));
+    pub fn serialize(&self, mut w: impl Write) {
+        self.iter().for_each(|item| {
+            write!(w, "{item}").unwrap();
         });
-        if let Err(e) = std::fs::write(file, buff) {
-            panic!("{e}");
-        }
     }
 
     pub fn deserialize(source: String) -> Result<Self, TaskError> {
@@ -415,7 +406,7 @@ impl TaskList {
 impl Display for TaskList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for item in self.iter() {
-            let _ = write!(f, "{item}");
+            write!(f, "{item}")?;
         }
         Ok(())
     }

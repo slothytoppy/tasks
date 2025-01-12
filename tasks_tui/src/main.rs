@@ -5,41 +5,32 @@ use anathema::component::ComponentId;
 use anathema::runtime::Runtime;
 use anathema::state::State;
 use anathema::templates::Document;
+
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::Path;
+
 use task_editor::TaskEditor;
 use task_editor::TaskEditorState;
-
-use std::fmt::Display;
-use std::fs::OpenOptions;
-use std::path::Path;
 use tracing_subscriber::FmtSubscriber;
 
-use std::io::Write;
 use tasks_core::tasks::*;
 
+mod navbar;
 mod selection;
 mod task_editor;
 
+use navbar::*;
 use selection::*;
-
-#[derive(Default, Debug)]
-struct Task {
-    item: TaskList,
-}
-
-impl Display for Task {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.item.to_string())
-    }
-}
-
-impl Task {
-    pub fn new(item: TaskList) -> Self {
-        Self { item }
-    }
-}
 
 #[derive(Default)]
 struct App;
+
+#[derive(Debug, State)]
+struct AppState {
+    #[state_ignore]
+    id: ComponentId<String>,
+}
 
 impl Component for App {
     type State = AppState;
@@ -66,12 +57,6 @@ impl Component for App {
     }
 }
 
-#[derive(Debug, State)]
-struct AppState {
-    #[state_ignore]
-    id: ComponentId<String>,
-}
-
 fn main() {
     setup_hook();
     setup_logger("log");
@@ -91,7 +76,7 @@ fn main() {
 
     let mut runtime = Runtime::builder(document, backend);
 
-    let id = runtime
+    let editor = runtime
         .register_component(
             "editor",
             "./templates/task_editor.aml",
@@ -100,18 +85,30 @@ fn main() {
         )
         .unwrap();
 
-    let _ = runtime.register_component("main", "./templates/main.aml", App {}, AppState { id });
-
-    let selection_state = TaskSelectionState::new(Task::new(task_list));
-
-    let _ = runtime
+    let selection = runtime
         .register_component(
             "selection",
             "./templates/list.aml",
             TaskSelection {},
-            selection_state,
+            TaskSelectionState::new(task_list),
         )
         .expect("failed to register list component");
+
+    let _ = runtime.register_component(
+        "main",
+        "./templates/main.aml",
+        App {},
+        AppState { id: editor },
+    );
+
+    let _ = runtime
+        .register_component(
+            "navbar",
+            "./templates/navbar.aml",
+            NavBar {},
+            NavBarState::new(editor, selection, Placement::Relative, 0, 0),
+        )
+        .expect("failed to register navbar");
 
     runtime.finish().unwrap().run();
 }

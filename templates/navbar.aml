@@ -1,0 +1,17 @@
+text placement
+hstack
+    if placement == "absolute"
+      position[top: x, bottom: y, placement: "absolute"]
+        hstack 
+          for val in list 
+            border [id: x]
+              text val " "
+    else if placement == "relative"
+      position[top: x, bottom: y, placement: "relative"]
+        hstack 
+          for val in list 
+            text val " "
+    
+position[top: 3, placement: "absolute"]
+  vstack
+    text "selected:" selected
